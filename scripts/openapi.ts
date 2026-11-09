@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import {
   docInput,
+  commentInput,
   docPatch,
   itemInput,
   itemPatch,
@@ -51,6 +52,7 @@ const item = object(
     createdAt: date,
     updatedAt: date,
     updatedBy: string,
+    attribution: ref("Attribution"),
   },
   [
     "id",
@@ -79,7 +81,28 @@ const document = object({
   updatedAt: date,
   updatedBy: string,
 });
+// Attribution is additive: historical records may have only updatedBy/principal.
+(document.properties as Record<string, unknown>).attribution =
+  ref("Attribution");
 const schemas: Record<string, unknown> = {
+  Attribution: object(
+    {
+      principal: string,
+      userName: string,
+      agentName: { type: "string", maxLength: 80 },
+    },
+    ["principal", "userName"],
+  ),
+  TaskComment: object({
+    id: { type: "string", format: "uuid" },
+    project: string,
+    taskId: string,
+    content: string,
+    version,
+    createdAt: date,
+    createdBy: string,
+    attribution: ref("Attribution"),
+  }),
   Project: project,
   Membership: membership,
   WorkItem: item,
@@ -90,12 +113,16 @@ const schemas: Record<string, unknown> = {
     required: [...document.required, "content"],
   },
   Me: object({ principal: string, canCreateProject: { type: "boolean" } }),
-  Audit: object({
-    action: string,
-    target: string,
-    principal: string,
-    at: date,
-  }),
+  Audit: object(
+    {
+      action: string,
+      target: string,
+      principal: string,
+      at: date,
+      attribution: ref("Attribution"),
+    },
+    ["action", "target", "principal", "at"],
+  ),
   Error: object(
     { error: string, details: { type: "array", items: { type: "object" } } },
     ["error"],
@@ -103,6 +130,7 @@ const schemas: Record<string, unknown> = {
 };
 for (const [name, schema] of Object.entries({
   ProjectInput: projectInput,
+  CommentInput: commentInput,
   ItemInput: itemInput,
   ItemPatch: itemPatch,
   DocInput: docInput,
@@ -110,7 +138,13 @@ for (const [name, schema] of Object.entries({
   MemberInput: memberInput,
 }))
   schemas[name] = z.toJSONSchema(schema, { io: "input" });
-for (const name of ["Membership", "WorkItem", "Document", "Audit"])
+for (const name of [
+  "Membership",
+  "WorkItem",
+  "Document",
+  "Audit",
+  "TaskComment",
+])
   schemas[`${name}Page`] = object(
     { items: { type: "array", items: ref(name) }, nextCursor: string },
     ["items"],
@@ -283,6 +317,23 @@ route(
   "WorkItem",
   "ItemPatch",
   { version: true },
+);
+route(
+  "/projects/{project}/items/{id}/comments",
+  "get",
+  "listTaskComments",
+  "List task comments; project membership required",
+  "TaskCommentPage",
+  undefined,
+  { paginated: true },
+);
+route(
+  "/projects/{project}/items/{id}/comments",
+  "post",
+  "createTaskComment",
+  "Add an immutable Markdown comment to a task; project membership required",
+  "TaskComment",
+  "CommentInput",
 );
 route(
   "/projects/{project}/docs/{tree}",

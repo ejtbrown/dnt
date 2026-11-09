@@ -2,6 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import {
   projectInput,
+  agentNameSchema,
+  commentInput,
+  type TaskComment,
+  type Attribution,
   itemInput,
   itemPatch,
   docInput,
@@ -36,6 +40,9 @@ export interface Request {
   method: string;
   path: string;
   principal: string;
+  // Trusted adapter context, never copied from HTTP headers or request bodies.
+  userName?: string;
+  agentName?: string;
   headers: Record<string, string | undefined>;
   query?: Record<string, string | undefined>;
   body?: unknown;
@@ -150,6 +157,15 @@ export class Service {
     const result = await this.db.query<T>(pk, prefix, +raw, after);
     return { items: result.rows.map((r) => r.value), nextCursor: result.next };
   }
+  attribution(req: Request): Attribution {
+    return {
+      principal: req.principal,
+      userName: req.userName?.trim() || req.principal,
+      ...(req.agentName === undefined
+        ? {}
+        : { agentName: agentNameSchema.parse(req.agentName) }),
+    };
+  }
   async mutate(
     req: Request,
     membership: Row<Membership> | undefined,
@@ -161,6 +177,7 @@ export class Service {
       target: string;
     }>,
   ): Promise<Response> {
+    const attribution = this.attribution(req);
     let idempotency: { pk: string; hash: string } | undefined;
     if (req.method === "POST") {
       const token = req.headers["idempotency-key"];
@@ -171,7 +188,12 @@ export class Service {
         );
       idempotency = {
         pk: `IDEMP#${digest(`${req.principal}\n${req.path}\n${token}`)}`,
-        hash: digest(JSON.stringify(req.body ?? null)),
+        hash: digest(
+          JSON.stringify(req.body ?? null) +
+            (attribution.agentName === undefined
+              ? ""
+              : `\nagentName:${JSON.stringify(attribution.agentName)}`),
+        ),
       };
       const old = await this.db.get<{ hash: string; response: Response }>(
         idempotency.pk,
@@ -207,7 +229,13 @@ export class Service {
         pk,
         sk: `AUDIT#${now()}#${randomUUID()}`,
         version: 1,
-        value: { action, target, principal: req.principal, at: now() },
+        value: {
+          action,
+          target,
+          principal: req.principal,
+          attribution,
+          at: now(),
+        },
       },
       expected: null,
     });
@@ -412,6 +440,46 @@ export class Service {
         });
       }
     }
+    if (child === "items" && id && action === "comments" && path.length === 5) {
+      const item = need(
+        await this.db.get<WorkItem>(pk, itemKey(slug, id)),
+        "Work item not found",
+      );
+      if (item.value.kind !== "Task")
+        throw new HttpError(400, "Comments belong to tasks");
+      const prefix = `COMMENT#${itemKey(slug, id)}#`;
+      if (method === "GET")
+        return {
+          status: 200,
+          body: await this.page<TaskComment>(pk, prefix, req),
+        };
+      if (method === "POST") {
+        const input = commentInput.parse(req.body);
+        return this.mutate(req, membership, project, async () => {
+          const value: TaskComment = {
+            ...input,
+            id: randomUUID(),
+            project: slug,
+            taskId: id,
+            version: 1,
+            createdAt: now(),
+            createdBy: req.principal,
+            attribution: this.attribution(req),
+          };
+          return {
+            response: { status: 201, body: value },
+            action: "comment.created",
+            target: id,
+            writes: [
+              {
+                row: row(pk, `${prefix}${value.createdAt}#${value.id}`, value),
+                expected: null,
+              },
+            ],
+          };
+        });
+      }
+    }
     if (child === "items" && !action) {
       if (!id && method === "GET")
         return {
@@ -440,6 +508,7 @@ export class Service {
             createdAt: now(),
             updatedAt: now(),
             updatedBy: req.principal,
+            attribution: this.attribution(req),
           };
           return {
             response: { status: 201, body: value, headers: { etag: '"1"' } },
@@ -485,6 +554,7 @@ export class Service {
               version: current.version + 1,
               updatedAt: now(),
               updatedBy: req.principal,
+              attribution: this.attribution(req),
             };
             await this.validateItem(
               slug,
@@ -538,6 +608,7 @@ export class Service {
             createdAt: now(),
             updatedAt: now(),
             updatedBy: req.principal,
+            attribution: this.attribution(req),
           };
           return {
             response: { status: 201, body: value, headers: { etag: '"1"' } },
@@ -610,6 +681,7 @@ export class Service {
               version: current.version + 1,
               updatedAt: now(),
               updatedBy: req.principal,
+              attribution: this.attribution(req),
             };
             return {
               response: {

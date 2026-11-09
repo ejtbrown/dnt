@@ -29,10 +29,11 @@ For an existing Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to i
 - Three nested Markdown documentation trees per project, immutable content revisions, preview, and restoration through the editor.
 - Initiatives → Epics → Tasks, with validated same-project parents and optional member assignment.
 - Tasks in **Concept**, **Implement**, **Needs Attention**, **Review**, and **Done**; draggable board and editable hierarchy.
+- Task comments and consistent author attribution: MCP writes can show **user name via agent name** in comments, document history, work-item details, and project activity.
 - A single project-wide identifier sequence across all work item types, such as `ROOT-1`, `ROOT-2`, `ROOT-3`. An initiative may take `ROOT-1`, so the first task is not necessarily ordinal 1. IDs remain stable when work is moved between compatible parents.
 - A versioned REST-style JSON API with an [OpenAPI contract](public/openapi.json), pagination, required idempotency keys for creates, optimistic concurrency for edits, and mutation audit records.
 - Cognito authorization-code + PKCE login for people; IAM/SigV4 access for agents. Every operation also checks project membership.
-- A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with 20 tools and OAuth account linking for ChatGPT and compatible clients.
+- A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with 22 tools and OAuth account linking for ChatGPT and compatible clients.
 - CloudFront → API Gateway HTTP API → Lambda, private S3 origins for the web application, private S3 content storage, and on-demand DynamoDB tables for product records and OAuth grants.
 - GitHub Actions jobs hosted by CodeBuild; CDK deployment from `main` through a separate OIDC role.
 
@@ -91,7 +92,7 @@ See [architecture](docs/architecture.md) for storage, consistency, and security 
 
 ## Initial-version limits
 
-There are no attachments, comments, notifications, full-text search, external imports, project renaming/deletion, or hard deletion of work items and documents. Tasks can move among all five states; there is no separate approval engine. Document parents and trees are immutable; revisions support content restoration. The UI loads paginated project metadata for small-team boards; very large projects will need server-side filters and indexes. Page bodies are limited to 100 KB of UTF-8 Markdown, task descriptions to 20,000 characters.
+There are no attachments, notifications, full-text search, external imports, project renaming/deletion, or hard deletion of work items and documents. Tasks can move among all five states; there is no separate approval engine. Document parents and trees are immutable; revisions support content restoration. The UI loads paginated project metadata for small-team boards; very large projects will need server-side filters and indexes. Page bodies are limited to 100 KB of UTF-8 Markdown, task descriptions to 20,000 characters.
 
 The deployment runbook includes production smoke checks and recovery procedures. Browser access tokens stay in memory; reloading requires another sign-in redirect, and expired sessions require sign-in again. Cognito's shared invitation and MFA policy remains owned by `ejtbrown-cognito`.
 

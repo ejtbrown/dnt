@@ -47,7 +47,7 @@ test("official MCP client initializes stateless HTTP, discovers complete typed t
     client = await connect(f);
   try {
     const tools = (await client.listTools()).tools;
-    assert.equal(tools.length, 20);
+    assert.equal(tools.length, 22);
     const openapi = JSON.parse(readFileSync("public/openapi.json", "utf8"));
     const expected = Object.values(openapi.paths)
       .flatMap((methods: any) =>
@@ -144,6 +144,18 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
       idempotencyKey: randomUUID(),
     };
     const task = await call("create_work_item", create);
+    await call("create_task_comment", {
+      project: "ROOT",
+      id: task.id,
+      input: { content: "Implementation update" },
+      idempotencyKey: randomUUID(),
+      agentName: "Planning Agent",
+    });
+    assert.equal(
+      (await call("list_task_comments", { project: "ROOT", id: task.id })).items
+        .length,
+      1,
+    );
     assert.equal(task.id, "ROOT-3");
     assert.equal(task.state, "Concept");
     assert.deepEqual(await call("create_work_item", create), task);

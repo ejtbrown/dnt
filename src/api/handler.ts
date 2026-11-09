@@ -1,6 +1,8 @@
 import { DynamoStore, S3Blobs } from "./aws-store.js";
 import { Service, HttpError } from "./service.js";
+import { AccountNames } from "./names.js";
 import { authenticate } from "./auth.js";
+const names = new AccountNames(process.env.COGNITO_POOL_ID!);
 const service = new Service(
   new DynamoStore(process.env.TABLE_NAME!),
   new S3Blobs(process.env.CONTENT_BUCKET!),
@@ -35,6 +37,14 @@ export async function handler(event: any) {
       headers: event.headers ?? {},
       query: event.queryStringParameters ?? {},
       principal,
+      userName: ["POST", "PATCH", "DELETE"].includes(
+        event.requestContext.http.method,
+      )
+        ? await names.resolve(
+            principal,
+            event.requestContext.authorizer?.jwt?.claims?.username,
+          )
+        : undefined,
       body,
     });
     return {

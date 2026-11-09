@@ -1057,6 +1057,8 @@ form .description-input {
   .sidebar nav {
     grid-column: 1 / -1;
     display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
     gap: 4px;
   }
   .nav-item {
@@ -1219,4 +1221,33 @@ form .description-input {
     padding: 10px;
     font-size: 11px;
   }
+}
+
+.byline {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.attribution {
+  overflow-wrap: anywhere;
+}
+.revision-list > div {
+  flex-wrap: wrap;
+}
+.task-comments {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.task-comment,
+.activity-list article {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.task-comments form {
+  margin-top: 16px;
+}
+.task-comments textarea {
+  min-height: 90px;
 }

@@ -118,10 +118,19 @@ export class AppStack extends Stack {
         CONTENT_BUCKET: data.content.bucketName,
         COGNITO_ISSUER: issuer,
         COGNITO_CLIENT_ID: clientId.valueAsString,
+        COGNITO_POOL_ID: poolId.valueAsString,
         PROJECT_CREATORS: JSON.stringify(config.projectCreators),
         AGENT_ROLES: JSON.stringify(config.agentRoles),
       },
     });
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["cognito-idp:AdminGetUser"],
+        resources: [
+          `arn:aws:cognito-idp:${config.region}:${config.account}:userpool/${poolId.valueAsString}`,
+        ],
+      }),
+    );
     data.table.grantReadWriteData(fn);
     data.content.grantRead(fn);
     data.content.grantPut(fn);
