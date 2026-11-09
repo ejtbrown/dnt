@@ -183,12 +183,17 @@ export class AppStack extends Stack {
       }),
     );
     const mcpIntegration = new HttpLambdaIntegration("McpService", mcp);
-    for (const path of ["/mcp", "/oauth/{proxy+}", "/.well-known/{proxy+}"])
+    const mcpRoutes = [
+      "/mcp",
+      "/oauth/{proxy+}",
+      "/.well-known/{proxy+}",
+    ].flatMap((path) =>
       api.addRoutes({
         path,
         methods: [apigw.HttpMethod.ANY],
         integration: mcpIntegration,
-      });
+      }),
+    );
     const accessLogs = new logs.LogGroup(this, "AccessLogs", {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.RETAIN,
@@ -207,6 +212,8 @@ export class AppStack extends Stack {
       throttlingBurstLimit: 50,
       throttlingRateLimit: 25,
     };
+    // API Gateway must have the routes before the stage can configure them.
+    stage.node.addDependency(...mcpRoutes);
     // This map is raw CloudFormation JSON, unlike defaultRouteSettings above.
     stage.routeSettings = {
       "ANY /oauth/{proxy+}": {
