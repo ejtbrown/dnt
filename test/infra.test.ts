@@ -193,6 +193,14 @@ test("deployment helper layers remain inside the permitted application namespace
 });
 
 test("MCP routes forward uncached requests and OAuth state is retained with TTL", () => {
+  serviceTemplate.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+    RouteSettings: {
+      "ANY /oauth/{proxy+}": {
+        ThrottlingBurstLimit: 10,
+        ThrottlingRateLimit: 5,
+      },
+    },
+  });
   dataTemplate.resourceCountIs("AWS::DynamoDB::Table", 2);
   dataTemplate.hasResource("AWS::DynamoDB::Table", {
     DeletionPolicy: "Retain",

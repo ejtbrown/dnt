@@ -207,10 +207,11 @@ export class AppStack extends Stack {
       throttlingBurstLimit: 50,
       throttlingRateLimit: 25,
     };
+    // This map is raw CloudFormation JSON, unlike defaultRouteSettings above.
     stage.routeSettings = {
       "ANY /oauth/{proxy+}": {
-        throttlingBurstLimit: 10,
-        throttlingRateLimit: 5,
+        ThrottlingBurstLimit: 10,
+        ThrottlingRateLimit: 5,
       },
     };
     new cloudwatch.Alarm(this, "ApiErrors", {
