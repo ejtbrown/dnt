@@ -104,6 +104,11 @@ export class ToolingStack extends Stack {
         `arn:aws:s3:::cdk-${qualifier}-assets-${config.account}-${region}/*`,
       ]),
     );
+    allow(
+      ["ssm:GetParameter", "ssm:GetParameters"],
+      [config.region, "us-east-1"].map(region =>
+        arn("ssm", region, `parameter/cdk-bootstrap/${qualifier}/version`)),
+    );
     allow(["dynamodb:*"], [arn("dynamodb", config.region, "table/dnt-data-*")]);
     allow(
       ["lambda:*"],

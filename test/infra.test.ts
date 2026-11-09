@@ -149,3 +149,13 @@ test("public-repository runners reject events from untrusted GitHub actors", () 
   const runner = Object.values(toolingTemplate.findResources("AWS::CodeBuild::Project"))[0] as any;
   assert.ok(runner.DependsOn.some((id: string) => id.startsWith("RunnerRoleDefaultPolicy")));
 });
+
+test("CloudFormation can resolve only the dnt bootstrap version parameters", () => {
+  const policy = Object.values(toolingTemplate.findResources("AWS::IAM::ManagedPolicy"))
+    .find((p: any) => p.Properties.ManagedPolicyName === "dnt-cloudformation") as any;
+  const statement = policy.Properties.PolicyDocument.Statement.find((s: any) => s.Action.includes("ssm:GetParameters"));
+  assert.deepEqual(statement.Resource.sort(), [
+    `arn:aws:ssm:us-east-1:${config.account}:parameter/cdk-bootstrap/dntkit001/version`,
+    `arn:aws:ssm:${config.region}:${config.account}:parameter/cdk-bootstrap/dntkit001/version`,
+  ].sort());
+});
