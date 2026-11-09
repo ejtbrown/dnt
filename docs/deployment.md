@@ -6,8 +6,8 @@ The checked-in configuration targets account `264702148921`, region `us-east-2`,
 
 For a new installation:
 
-1. Configure an invitation-only Cognito pool and HTTPS login domain. Register the public client described by `config/cognito-application.json`, adjusting its redirects to your domain.
-2. Set all values in `config/deploy.json`: account, region, hosted zone, domain, repository, immutable GitHub repository/owner IDs, trusted runner actor IDs, CodeConnections ARN, pool/client IDs, and auth domain. Pool/client IDs are public identifiers; client secrets must never enter this browser application.
+1. Configure an invitation-only Cognito pool and HTTPS login domain. Register the public clients described by `config/cognito-application.json` and `config/cognito-mcp-application.json`, adjusting their redirects to your domain. The second client is dedicated to MCP account linking.
+2. Set all values in `config/deploy.json`: account, region, hosted zone, domain, repository, immutable GitHub repository/owner IDs, trusted runner actor IDs, CodeConnections ARN, pool/client IDs, `mcpCognitoClientId`, trusted `mcpClientMetadataUrls`, and auth domain. Pool/client IDs are public identifiers; client secrets must never enter this browser application.
 3. Invite the initial operator through your identity service. Put their immutable `cognito:<sub>` in `projectCreators`. The production configuration initially permits only the owner's invited Cognito account to create projects. Creation gives that account project Administrator rights.
 4. Grant your CodeConnections GitHub App access to the repository and configure GitHub's AWS OIDC provider. Limit the App's repository selection because connection-token access is scoped to the connection.
 5. Register agent IAM role ARNs in `agentRoles` before granting project membership. The application does not create IAM identities.
@@ -35,7 +35,7 @@ Publish an initial baseline to GitHub, install the PR-only main ruleset with `np
 - Pull requests from this repository run `npm run check` and the browser workflow tests on CodeBuild, without deployment permissions. Fork PRs are skipped. CodeBuild additionally requires the triggering GitHub actor to be in `runnerActorIds` (initially only the owner), so changing a fork’s workflow cannot bypass the runner’s server-side gate. Review external contributions before copying them to a trusted branch; add collaborator IDs deliberately.
 - A merged pull request to `main` runs the same checks, assumes the dnt deployment role through GitHub OIDC, and runs `npm run deploy`.
 - Deployment jobs are serialized and are not cancelled halfway through infrastructure changes.
-- `deploy` verifies the account and Cognito client, synthesizes stacks, displays diffs, deploys certificate/data, then deploys the application using the certificate output and Cognito parameters.
+- `deploy` verifies the account and both Cognito clients, synthesizes stacks, displays diffs, deploys certificate/data, then deploys the application using the certificate output and Cognito parameters.
 - Before assuming AWS credentials, the workflow verifies that its commit is the merge result of a pull request to this repository’s `main`. Direct pushes and manual executions do not qualify.
 
 The routine stacks are:
@@ -43,14 +43,16 @@ The routine stacks are:
 | Stack | Region | Owns |
 | --- | --- | --- |
 | `dnt-certificate` | `us-east-1` | ACM certificate and validation |
-| `dnt-data` | `us-east-2` | DynamoDB table, content bucket |
+| `dnt-data` | `us-east-2` | Product and OAuth DynamoDB tables, content bucket |
 | `dnt-app` | `us-east-2` | API, Lambda, web bucket, CloudFront, DNS, logs, alarm |
 
 The synth output contains the reviewable CloudFormation templates in ignored `cdk.out/`. Strong cross-stack references deliberately protect the data stack's exported resources. Do not rename stateful constructs or remove references without a migration plan.
 
 ## First project and sign-in
 
-After deployment, obtain `AgentApi`, `AgentInvokeArn`, and `Url` from `dnt-app` outputs. Open the site and sign in using the invited account. Complete the temporary-password change and Cognito MFA enrollment, then create the first project in the workspace.
+For MCP installation, OAuth lifetimes, complete tool coverage, and verification, see [the MCP guide](mcp.md).
+
+After deployment, obtain `AgentApi`, `AgentInvokeArn`, `McpUrl`, and `Url` from `dnt-app` outputs. Open the site and sign in using the invited account. Complete the temporary-password change and Cognito MFA enrollment, then create the first project in the workspace.
 
 Additional people must first be invited through the shared Cognito process. The app does not send invitations or create users. Have each person sign in and copy their `cognito:<sub>` identity from the workspace, or obtain their subject from the shared pool's user record. A project Administrator grants that identity membership. Never use email addresses as membership keys.
 

@@ -18,6 +18,8 @@ export const configSchema = z.object({
     ),
   cognitoPoolId: z.string(),
   cognitoClientId: z.string(),
+  mcpCognitoClientId: z.string(),
+  mcpClientMetadataUrls: z.array(z.url().startsWith("https://")).min(1),
   authDomain: z.url().startsWith("https://"),
   projectCreators: z.array(principalSchema).min(1),
   agentRoles: z.array(

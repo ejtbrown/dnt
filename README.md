@@ -32,7 +32,8 @@ For an existing Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to i
 - A single project-wide identifier sequence across all work item types, such as `ROOT-1`, `ROOT-2`, `ROOT-3`. An initiative may take `ROOT-1`, so the first task is not necessarily ordinal 1. IDs remain stable when work is moved between compatible parents.
 - A versioned REST-style JSON API with an [OpenAPI contract](public/openapi.json), pagination, required idempotency keys for creates, optimistic concurrency for edits, and mutation audit records.
 - Cognito authorization-code + PKCE login for people; IAM/SigV4 access for agents. Every operation also checks project membership.
-- CloudFront → API Gateway HTTP API → Lambda, private S3 origins for the web application, private S3 content storage, and an on-demand DynamoDB table.
+- A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with 20 tools and OAuth account linking for ChatGPT and compatible clients.
+- CloudFront → API Gateway HTTP API → Lambda, private S3 origins for the web application, private S3 content storage, and on-demand DynamoDB tables for product records and OAuth grants.
 - GitHub Actions jobs hosted by CodeBuild; CDK deployment from `main` through a separate OIDC role.
 
 ## Permission model
