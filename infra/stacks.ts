@@ -8,6 +8,7 @@ import {
   type StackProps,
 } from "aws-cdk-lib";
 import { Construct } from "constructs";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -30,6 +31,7 @@ import type { Config } from "./config.js";
 export class DataStack extends Stack {
   readonly table: dynamodb.Table;
   readonly content: s3.Bucket;
+  readonly oauth: dynamodb.Table;
   constructor(scope: Construct, id: string, props: StackProps) {
     super(scope, id, { ...props, terminationProtection: true });
     this.table = new dynamodb.Table(this, "Records", {
@@ -47,6 +49,16 @@ export class DataStack extends Stack {
       versioned: true,
       removalPolicy: RemovalPolicy.RETAIN,
     });
+    this.oauth = new dynamodb.Table(this, "OAuthRecords", {
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "expiresAt",
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      deletionProtection: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    new CfnOutput(this, "OAuthTableName", { value: this.oauth.tableName });
     new CfnOutput(this, "TableName", { value: this.table.tableName });
     new CfnOutput(this, "ContentBucket", { value: this.content.bucketName });
   }
@@ -133,6 +145,50 @@ export class AppStack extends Stack {
       integration,
       authorizer: new HttpIamAuthorizer(),
     });
+    const mcpLogs = new logs.LogGroup(this, "McpLogs", {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    const mcp = new lambda.Function(this, "McpFunction", {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.ARM_64,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("dist/mcp"),
+      timeout: Duration.seconds(28),
+      memorySize: 256,
+      logGroup: mcpLogs,
+      environment: {
+        TABLE_NAME: data.table.tableName,
+        CONTENT_BUCKET: data.content.bucketName,
+        OAUTH_TABLE: data.oauth.tableName,
+        PUBLIC_ORIGIN: `https://${config.domain}`,
+        COGNITO_ISSUER: issuer,
+        COGNITO_POOL_ID: poolId.valueAsString,
+        MCP_COGNITO_CLIENT_ID: config.mcpCognitoClientId,
+        AUTH_DOMAIN: config.authDomain,
+        MCP_CLIENT_METADATA_URLS: JSON.stringify(config.mcpClientMetadataUrls),
+        PROJECT_CREATORS: JSON.stringify(config.projectCreators),
+      },
+    });
+    data.table.grantReadWriteData(mcp);
+    data.content.grantRead(mcp);
+    data.content.grantPut(mcp);
+    data.oauth.grantReadWriteData(mcp);
+    mcp.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["cognito-idp:AdminGetUser"],
+        resources: [
+          `arn:aws:cognito-idp:${config.region}:${config.account}:userpool/${poolId.valueAsString}`,
+        ],
+      }),
+    );
+    const mcpIntegration = new HttpLambdaIntegration("McpService", mcp);
+    for (const path of ["/mcp", "/oauth/{proxy+}", "/.well-known/{proxy+}"])
+      api.addRoutes({
+        path,
+        methods: [apigw.HttpMethod.ANY],
+        integration: mcpIntegration,
+      });
     const accessLogs = new logs.LogGroup(this, "AccessLogs", {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.RETAIN,
@@ -150,6 +206,12 @@ export class AppStack extends Stack {
     stage.defaultRouteSettings = {
       throttlingBurstLimit: 50,
       throttlingRateLimit: 25,
+    };
+    stage.routeSettings = {
+      "ANY /oauth/{proxy+}": {
+        throttlingBurstLimit: 10,
+        throttlingRateLimit: 5,
+      },
     };
     new cloudwatch.Alarm(this, "ApiErrors", {
       metric: api.metricServerError({ period: Duration.minutes(5) }),
@@ -236,6 +298,22 @@ export class AppStack extends Stack {
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           responseHeadersPolicy: security,
         },
+        ...Object.fromEntries(
+          ["/mcp", "/oauth/*", "/.well-known/*"].map((path) => [
+            path,
+            {
+              origin: new origins.HttpOrigin(
+                `${api.apiId}.execute-api.${config.region}.amazonaws.com`,
+              ),
+              viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+              allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+              cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+              originRequestPolicy:
+                cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+              responseHeadersPolicy: security,
+            },
+          ]),
+        ),
       },
     });
     const deploymentLogs = new logs.LogGroup(this, "DeploymentLogs", {
@@ -260,10 +338,12 @@ export class AppStack extends Stack {
     });
     // LayerVersion's generated physical name omits the stack prefix. Keep CDK's
     // deployment helper within the same namespace as the execution policy.
-    Aspects.of(this).add({ visit: resource => {
-      if (resource instanceof lambda.CfnLayerVersion)
-        resource.layerName = `${this.stackName}-${this.getLogicalId(resource)}`;
-    } });
+    Aspects.of(this).add({
+      visit: (resource) => {
+        if (resource instanceof lambda.CfnLayerVersion)
+          resource.layerName = `${this.stackName}-${this.getLogicalId(resource)}`;
+      },
+    });
     const zone = route53.HostedZone.fromHostedZoneAttributes(this, "Zone", {
       hostedZoneId: config.hostedZoneId,
       zoneName: config.zoneName,
@@ -280,6 +360,7 @@ export class AppStack extends Stack {
       else new route53.AaaaRecord(this, "AliasAAAA", Props);
     }
     new CfnOutput(this, "Url", { value: `https://${config.domain}` });
+    new CfnOutput(this, "McpUrl", { value: `https://${config.domain}/mcp` });
     new CfnOutput(this, "AgentApi", { value: `${api.apiEndpoint}/agent/v1` });
     new CfnOutput(this, "AgentInvokeArn", {
       value: `arn:aws:execute-api:${config.region}:${config.account}:${api.apiId}/*/*/agent/v1/*`,

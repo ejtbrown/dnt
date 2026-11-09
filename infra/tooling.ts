@@ -72,6 +72,14 @@ export class ToolingStack extends Stack {
         }),
       ],
     });
+    runtimeBoundary.addStatements(
+      new iam.PolicyStatement({
+        actions: ["cognito-idp:AdminGetUser"],
+        resources: [
+          arn("cognito-idp", config.region, `userpool/${config.cognitoPoolId}`),
+        ],
+      }),
+    );
     const execution = new iam.ManagedPolicy(this, "ExecutionPolicy", {
       managedPolicyName: "dnt-cloudformation",
     });
@@ -106,8 +114,9 @@ export class ToolingStack extends Stack {
     );
     allow(
       ["ssm:GetParameter", "ssm:GetParameters"],
-      [config.region, "us-east-1"].map(region =>
-        arn("ssm", region, `parameter/cdk-bootstrap/${qualifier}/version`)),
+      [config.region, "us-east-1"].map((region) =>
+        arn("ssm", region, `parameter/cdk-bootstrap/${qualifier}/version`),
+      ),
     );
     allow(["dynamodb:*"], [arn("dynamodb", config.region, "table/dnt-data-*")]);
     allow(
@@ -253,7 +262,8 @@ export class ToolingStack extends Stack {
       assumedBy: new iam.OpenIdConnectPrincipal(oidc, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": deploymentOidcSubject(config),
+          "token.actions.githubusercontent.com:sub":
+            deploymentOidcSubject(config),
         },
       }),
     });
@@ -311,7 +321,10 @@ export class ToolingStack extends Stack {
     runnerLogs.grantWrite(runnerRole);
     const connectionGrant = iam.Grant.addToPrincipal({
       grantee: runnerRole,
-      actions: ["codeconnections:GetConnection", "codeconnections:GetConnectionToken"],
+      actions: [
+        "codeconnections:GetConnection",
+        "codeconnections:GetConnectionToken",
+      ],
       resourceArns: [config.connectionArn],
     });
     const runner = new codebuild.CfnProject(this, "Runner", {
@@ -337,7 +350,10 @@ export class ToolingStack extends Stack {
         filterGroups: [
           [
             { type: "EVENT", pattern: "WORKFLOW_JOB_QUEUED" },
-            { type: "ACTOR_ACCOUNT_ID", pattern: `^(${config.runnerActorIds.join("|")})$` },
+            {
+              type: "ACTOR_ACCOUNT_ID",
+              pattern: `^(${config.runnerActorIds.join("|")})$`,
+            },
             { type: "WORKFLOW_NAME", pattern: "^(Validate dnt|Deploy dnt)$" },
           ],
         ],

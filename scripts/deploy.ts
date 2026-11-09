@@ -26,6 +26,28 @@ if (
   !client.AllowedOAuthScopes?.includes("openid")
 )
   throw new Error("Cognito app client does not match the dnt OAuth contract");
+if (!config.mcpCognitoClientId)
+  throw new Error("Register the dnt-mcp Cognito client before deployment");
+const mcpClient = aws([
+  "cognito-idp",
+  "describe-user-pool-client",
+  "--region",
+  config.region,
+  "--user-pool-id",
+  config.cognitoPoolId,
+  "--client-id",
+  config.mcpCognitoClientId,
+  "--query",
+  "UserPoolClient.{CallbackURLs:CallbackURLs,AllowedOAuthFlows:AllowedOAuthFlows,AllowedOAuthScopes:AllowedOAuthScopes,HasSecret:contains(keys(@), 'ClientSecret')}",
+]);
+if (
+  mcpClient.HasSecret ||
+  mcpClient.CallbackURLs?.length !== 1 ||
+  mcpClient.CallbackURLs[0] !== `https://${config.domain}/oauth/callback` ||
+  !mcpClient.AllowedOAuthFlows?.includes("code") ||
+  !mcpClient.AllowedOAuthScopes?.includes("openid")
+)
+  throw new Error("MCP Cognito client does not match the broker contract");
 cdk(["synth", "--strict", "--quiet"]);
 cdk(["diff", "dnt-certificate", "dnt-data", "--fail-on", "never"]);
 cdk(["deploy", "dnt-certificate", "dnt-data", "--require-approval", "never"]);

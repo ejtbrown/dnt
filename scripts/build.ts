@@ -11,3 +11,13 @@ await bundle({
   outfile: "dist/api/index.js",
   sourcemap: true,
 });
+
+await bundle({
+  entryPoints: ["src/mcp/handler.ts"],
+  bundle: true,
+  platform: "node",
+  target: "node24",
+  format: "cjs",
+  outfile: "dist/mcp/index.js",
+  sourcemap: true,
+});

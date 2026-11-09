@@ -61,7 +61,7 @@ test("human and agent routes require different authenticated mechanisms", () => 
     RouteKey: "ANY /agent/v1/{proxy+}",
     AuthorizationType: "AWS_IAM",
   });
-  serviceTemplate.resourceCountIs("AWS::ApiGatewayV2::Route", 2);
+  serviceTemplate.resourceCountIs("AWS::ApiGatewayV2::Route", 5);
   serviceTemplate.hasResourceProperties("AWS::Lambda::Function", {
     Runtime: "nodejs24.x",
     Environment: {
@@ -140,28 +140,114 @@ test("runtime roles have a permissions boundary and CI role is restricted to mai
 
 test("public-repository runners reject events from untrusted GitHub actors", () => {
   toolingTemplate.hasResourceProperties("AWS::CodeBuild::Project", {
-    Triggers: { FilterGroups: [[
-      { Type: "EVENT", Pattern: "WORKFLOW_JOB_QUEUED" },
-      { Type: "ACTOR_ACCOUNT_ID", Pattern: `^(${config.runnerActorIds.join("|")})$` },
-      { Type: "WORKFLOW_NAME", Pattern: "^(Validate dnt|Deploy dnt)$" },
-    ]], Webhook: true },
+    Triggers: {
+      FilterGroups: [
+        [
+          { Type: "EVENT", Pattern: "WORKFLOW_JOB_QUEUED" },
+          {
+            Type: "ACTOR_ACCOUNT_ID",
+            Pattern: `^(${config.runnerActorIds.join("|")})$`,
+          },
+          { Type: "WORKFLOW_NAME", Pattern: "^(Validate dnt|Deploy dnt)$" },
+        ],
+      ],
+      Webhook: true,
+    },
   });
-  const runner = Object.values(toolingTemplate.findResources("AWS::CodeBuild::Project"))[0] as any;
-  assert.ok(runner.DependsOn.some((id: string) => id.startsWith("RunnerRoleDefaultPolicy")));
+  const runner = Object.values(
+    toolingTemplate.findResources("AWS::CodeBuild::Project"),
+  )[0] as any;
+  assert.ok(
+    runner.DependsOn.some((id: string) =>
+      id.startsWith("RunnerRoleDefaultPolicy"),
+    ),
+  );
 });
 
 test("CloudFormation can resolve only the dnt bootstrap version parameters", () => {
-  const policy = Object.values(toolingTemplate.findResources("AWS::IAM::ManagedPolicy"))
-    .find((p: any) => p.Properties.ManagedPolicyName === "dnt-cloudformation") as any;
-  const statement = policy.Properties.PolicyDocument.Statement.find((s: any) => s.Action.includes("ssm:GetParameters"));
-  assert.deepEqual(statement.Resource.sort(), [
-    `arn:aws:ssm:us-east-1:${config.account}:parameter/cdk-bootstrap/dntkit001/version`,
-    `arn:aws:ssm:${config.region}:${config.account}:parameter/cdk-bootstrap/dntkit001/version`,
-  ].sort());
+  const policy = Object.values(
+    toolingTemplate.findResources("AWS::IAM::ManagedPolicy"),
+  ).find(
+    (p: any) => p.Properties.ManagedPolicyName === "dnt-cloudformation",
+  ) as any;
+  const statement = policy.Properties.PolicyDocument.Statement.find((s: any) =>
+    s.Action.includes("ssm:GetParameters"),
+  );
+  assert.deepEqual(
+    statement.Resource.sort(),
+    [
+      `arn:aws:ssm:us-east-1:${config.account}:parameter/cdk-bootstrap/dntkit001/version`,
+      `arn:aws:ssm:${config.region}:${config.account}:parameter/cdk-bootstrap/dntkit001/version`,
+    ].sort(),
+  );
 });
 
 test("deployment helper layers remain inside the permitted application namespace", () => {
-  const layers = Object.values(serviceTemplate.findResources("AWS::Lambda::LayerVersion")) as any[];
+  const layers = Object.values(
+    serviceTemplate.findResources("AWS::Lambda::LayerVersion"),
+  ) as any[];
   assert.ok(layers.length > 0);
-  assert.ok(layers.every(layer => layer.Properties.LayerName.startsWith("dnt-app-")));
+  assert.ok(
+    layers.every((layer) => layer.Properties.LayerName.startsWith("dnt-app-")),
+  );
+});
+
+test("MCP routes forward uncached requests and OAuth state is retained with TTL", () => {
+  dataTemplate.resourceCountIs("AWS::DynamoDB::Table", 2);
+  dataTemplate.hasResource("AWS::DynamoDB::Table", {
+    DeletionPolicy: "Retain",
+    UpdateReplacePolicy: "Retain",
+    Properties: Match.objectLike({
+      BillingMode: "PAY_PER_REQUEST",
+      DeletionProtectionEnabled: true,
+      TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+    }),
+  });
+  for (const path of ["/mcp", "/oauth/{proxy+}", "/.well-known/{proxy+}"])
+    serviceTemplate.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+      RouteKey: `ANY ${path}`,
+      AuthorizationType: "NONE",
+    });
+  const distribution = Object.values(
+    serviceTemplate.findResources("AWS::CloudFront::Distribution"),
+  )[0] as any;
+  for (const path of ["/mcp", "/oauth/*", "/.well-known/*"]) {
+    const behavior =
+      distribution.Properties.DistributionConfig.CacheBehaviors.find(
+        (b: any) => b.PathPattern === path,
+      );
+    assert.equal(
+      behavior.CachePolicyId,
+      "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+    );
+    assert.equal(
+      behavior.OriginRequestPolicyId,
+      "b689b0a8-53d0-40ab-baf2-68738e2966ac",
+    );
+    assert.ok(behavior.AllowedMethods.includes("POST"));
+  }
+  serviceTemplate.hasResourceProperties("AWS::Lambda::Function", {
+    Runtime: "nodejs24.x",
+    Timeout: 28,
+    Environment: {
+      Variables: Match.objectLike({
+        MCP_COGNITO_CLIENT_ID: config.mcpCognitoClientId,
+        MCP_CLIENT_METADATA_URLS: JSON.stringify(config.mcpClientMetadataUrls),
+        PUBLIC_ORIGIN: `https://${config.domain}`,
+      }),
+    },
+  });
+  const boundary = Object.values(
+    toolingTemplate.findResources("AWS::IAM::ManagedPolicy"),
+  ).find(
+    (p: any) => p.Properties.ManagedPolicyName === "dnt-runtime-boundary",
+  ) as any;
+  const statement = boundary.Properties.PolicyDocument.Statement.find(
+    (s: any) => [s.Action].flat().includes("cognito-idp:AdminGetUser"),
+  );
+  assert.equal(
+    statement.Resource,
+    `arn:aws:cognito-idp:${config.region}:${config.account}:userpool/${config.cognitoPoolId}`,
+  );
 });

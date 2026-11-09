@@ -1,0 +1,7 @@
+{
+  "name": "dnt-mcp",
+  "confidential": false,
+  "callbackUrls": ["https://dnt.ejtbrown.com/oauth/callback"],
+  "logoutUrls": ["https://dnt.ejtbrown.com/"],
+  "providers": ["COGNITO"]
+}

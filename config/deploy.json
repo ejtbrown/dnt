@@ -17,5 +17,9 @@
   "repositoryId": "1451000902",
   "runnerActorIds": [
     "9349498"
+  ],
+  "mcpCognitoClientId": "4gd2604sj3s1e8koqj0vutnj9q",
+  "mcpClientMetadataUrls": [
+    "https://chatgpt.com/oauth/client.json"
   ]
 }
