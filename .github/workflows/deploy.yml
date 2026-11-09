@@ -1,0 +1,40 @@
+name: Deploy dnt
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-dnt
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: codebuild-dnt-runner-${{ github.run_id }}-${{ github.run_attempt }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: node scripts/assert-merged-pr.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: npm ci
+      - run: npm run check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::264702148921:role/dnt-github-deploy
+          allowed-account-ids: "264702148921"
+          unset-current-credentials: true
+          force-skip-oidc: false
+      - run: npm run deploy
