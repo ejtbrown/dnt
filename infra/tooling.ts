@@ -161,6 +161,10 @@ export class ToolingStack extends Stack {
         `arn:aws:apigateway:${config.region}::/apis/*`,
       ],
     );
+    allow(
+      ["apigateway:GET", "apigateway:POST", "apigateway:DELETE"],
+      [`arn:aws:apigateway:${config.region}::/tags/*`],
+    );
     allow(["cloudfront:*"], ["*"]); // CloudFront generates IDs; tooling remains administrator-owned.
     allow(
       [

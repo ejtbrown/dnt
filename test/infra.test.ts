@@ -159,3 +159,9 @@ test("CloudFormation can resolve only the dnt bootstrap version parameters", () 
     `arn:aws:ssm:${config.region}:${config.account}:parameter/cdk-bootstrap/dntkit001/version`,
   ].sort());
 });
+
+test("deployment helper layers remain inside the permitted application namespace", () => {
+  const layers = Object.values(serviceTemplate.findResources("AWS::Lambda::LayerVersion")) as any[];
+  assert.ok(layers.length > 0);
+  assert.ok(layers.every(layer => layer.Properties.LayerName.startsWith("dnt-app-")));
+});
