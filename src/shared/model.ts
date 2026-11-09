@@ -35,6 +35,28 @@ const markdown = z
     (v) => new TextEncoder().encode(v).length <= 100_000,
     "Content must be at most 100 KB",
   );
+export const agentNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(
+    /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u,
+    "Use a single-line agent name without control characters",
+  );
+export interface Attribution {
+  principal: string;
+  userName: string;
+  agentName?: string;
+}
+export const attributionLabel = (
+  value: Attribution | undefined,
+  principal: string,
+) =>
+  value
+    ? `${value.userName}${value.agentName ? ` via ${value.agentName}` : ""}`
+    : principal;
+
 export const projectInput = z
   .object({
     slug: slugSchema,
@@ -103,6 +125,7 @@ export interface WorkItem {
   createdAt: string;
   updatedAt: string;
   updatedBy: string;
+  attribution?: Attribution;
 }
 export interface Document {
   id: string;
@@ -115,6 +138,27 @@ export interface Document {
   createdAt: string;
   updatedAt: string;
   updatedBy: string;
+  attribution?: Attribution;
+}
+export const commentInput = z
+  .object({ content: z.string().trim().min(1).max(20_000) })
+  .strict();
+export interface TaskComment {
+  id: string;
+  project: string;
+  taskId: string;
+  content: string;
+  version: number;
+  createdAt: string;
+  createdBy: string;
+  attribution: Attribution;
+}
+export interface AuditEvent {
+  action: string;
+  target: string;
+  principal: string;
+  at: string;
+  attribution?: Attribution;
 }
 export interface Page<T> {
   items: T[];

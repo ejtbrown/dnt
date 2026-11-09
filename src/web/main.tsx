@@ -25,6 +25,10 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   states,
+  attributionLabel,
+  type Attribution,
+  type TaskComment,
+  type AuditEvent,
   roles,
   kinds,
   rank,
@@ -40,13 +44,26 @@ import {
 import { api, all, initialize, login, logout } from "./api.js";
 import "./style.css";
 
-type Tab = "Board" | "Planning" | "Documentation" | "Members";
+type Tab = "Board" | "Planning" | "Documentation" | "Members" | "Activity";
 const stateClass = (state: string) => state.toLowerCase().replaceAll(" ", "-");
 const shortDate = (date: string) =>
   new Date(date).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
+function Byline({
+  attribution,
+  principal,
+}: {
+  attribution?: Attribution;
+  principal: string;
+}) {
+  return (
+    <span className="attribution" title={principal}>
+      <bdi>{attributionLabel(attribution, principal)}</bdi>
+    </span>
+  );
+}
 function Content({ children }: { children: string }) {
   return (
     <div className="markdown">
@@ -301,7 +318,7 @@ function App() {
               "Board",
               "Planning",
               "Documentation",
-              ...(role === "Administrator" ? ["Members"] : []),
+              ...(role === "Administrator" ? ["Members", "Activity"] : []),
             ] as Tab[]
           ).map((t) => {
             const Icon = {
@@ -309,6 +326,7 @@ function App() {
               Planning: ListTree,
               Documentation: BookOpen,
               Members: Users,
+              Activity: History,
             }[t];
             return (
               <button
@@ -397,7 +415,9 @@ function App() {
                         ? "SHARED KNOWLEDGE"
                         : tab === "Planning"
                           ? "THE BIG PICTURE"
-                          : "PROJECT ACCESS"}
+                          : tab === "Activity"
+                            ? "PROJECT ACTIVITY"
+                            : "PROJECT ACCESS"}
                   </div>
                   <h1>
                     {tab === "Board"
@@ -406,7 +426,9 @@ function App() {
                         ? "From idea to action"
                         : tab === "Documentation"
                           ? "Documentation"
-                          : "Project members"}
+                          : tab === "Activity"
+                            ? "Project activity"
+                            : "Project members"}
                   </h1>
                   <p>
                     {tab === "Board"
@@ -415,27 +437,31 @@ function App() {
                         ? "Connect the everyday work to the things you want to achieve."
                         : tab === "Documentation"
                           ? "Give your team and agents the context they need."
-                          : "The right people and agents, with the right access."}
+                          : tab === "Activity"
+                            ? "Who changed what, including work done through agents."
+                            : "The right people and agents, with the right access."}
                   </p>
                 </div>
-                <button
-                  className="primary"
-                  disabled={busy || loading}
-                  onClick={() =>
-                    tab === "Documentation"
-                      ? setModal("doc")
+                {tab !== "Activity" && (
+                  <button
+                    className="primary"
+                    disabled={busy || loading}
+                    onClick={() =>
+                      tab === "Documentation"
+                        ? setModal("doc")
+                        : tab === "Members"
+                          ? setModal("member")
+                          : newItem()
+                    }
+                  >
+                    <Plus size={17} />
+                    {tab === "Documentation"
+                      ? "New page"
                       : tab === "Members"
-                        ? setModal("member")
-                        : newItem()
-                  }
-                >
-                  <Plus size={17} />
-                  {tab === "Documentation"
-                    ? "New page"
-                    : tab === "Members"
-                      ? "Add member"
-                      : "New work item"}
-                </button>
+                        ? "Add member"
+                        : "New work item"}
+                  </button>
+                )}
               </div>
               {(tab === "Board" || tab === "Planning") && (
                 <>
@@ -767,6 +793,13 @@ function App() {
                               </button>
                             </div>
                             <h1>{selectedDoc.title}</h1>
+                            <p className="byline">
+                              Updated {shortDate(selectedDoc.updatedAt)} by{" "}
+                              <Byline
+                                attribution={selectedDoc.attribution}
+                                principal={selectedDoc.updatedBy}
+                              />
+                            </p>
                             <Content>{selectedDoc.content}</Content>
                           </>
                         )
@@ -788,6 +821,8 @@ function App() {
                     </article>
                   </div>
                 </>
+              ) : tab === "Activity" ? (
+                <ProjectActivity key={slug} project={slug} />
               ) : (
                 <>
                   <div className="member-info">
@@ -908,27 +943,45 @@ function App() {
               }
             />
           ) : modal === "item" ? (
-            <ItemForm
-              key={editItem?.id ?? "new"}
-              initial={editItem}
-              items={items}
-              role={role}
-              busy={busy}
-              save={(body, key) =>
-                run(async () => {
-                  const { kind, ...patch } = body;
-                  await api(
-                    `/projects/${slug}/items${editItem ? `/${editItem.id}` : ""}`,
-                    editItem ? "PATCH" : "POST",
-                    editItem ? patch : body,
-                    editItem?.version,
-                    key,
-                  );
-                  await refresh();
-                  setModal(null);
-                })
-              }
-            />
+            <>
+              {editItem && (
+                <p className="byline">
+                  Updated {shortDate(editItem.updatedAt)} by{" "}
+                  <Byline
+                    attribution={editItem.attribution}
+                    principal={editItem.updatedBy}
+                  />
+                </p>
+              )}
+              <ItemForm
+                key={editItem?.id ?? "new"}
+                initial={editItem}
+                items={items}
+                role={role}
+                busy={busy}
+                save={(body, key) =>
+                  run(async () => {
+                    const { kind, ...patch } = body;
+                    await api(
+                      `/projects/${slug}/items${editItem ? `/${editItem.id}` : ""}`,
+                      editItem ? "PATCH" : "POST",
+                      editItem ? patch : body,
+                      editItem?.version,
+                      key,
+                    );
+                    await refresh();
+                    setModal(null);
+                  })
+                }
+              />
+              {editItem?.kind === "Task" && (
+                <TaskComments
+                  key={`${slug}/${editItem.id}`}
+                  project={slug}
+                  taskId={editItem.id}
+                />
+              )}
+            </>
           ) : modal === "doc" ? (
             <DocForm
               docs={docs}
@@ -973,6 +1026,10 @@ function App() {
                 <div key={rev.version}>
                   <strong>Revision {rev.version}</strong>
                   <span>{shortDate(rev.updatedAt)}</span>
+                  <Byline
+                    attribution={rev.attribution}
+                    principal={rev.updatedBy}
+                  />
                   <button
                     className="secondary"
                     disabled={busy}
@@ -1393,3 +1450,157 @@ function DocTree({
   );
 }
 createRoot(document.getElementById("root")!).render(<App />);
+
+function TaskComments({
+  project,
+  taskId,
+}: {
+  project: string;
+  taskId: string;
+}) {
+  const path = `/projects/${project}/items/${taskId}/comments`;
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [content, setContent] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const body = { content };
+  const key = useRequestKey(body);
+  useEffect(() => {
+    let active = true;
+    all<TaskComment>(path)
+      .then((items) => {
+        if (active) setComments(items);
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [path]);
+  return (
+    <section className="task-comments" aria-label="Task comments">
+      <h3>Comments</h3>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p>Loading comments…</p>
+      ) : comments.length === 0 ? (
+        <p className="muted">No comments yet.</p>
+      ) : (
+        comments.map((comment) => (
+          <article className="task-comment" key={comment.id}>
+            <div className="byline">
+              <Byline
+                attribution={comment.attribution}
+                principal={comment.createdBy}
+              />{" "}
+              · {shortDate(comment.createdAt)}
+            </div>
+            <Content>{comment.content}</Content>
+          </article>
+        ))
+      )}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setSaving(true);
+          setError("");
+          try {
+            await api(path, "POST", body, undefined, key);
+            setComments(await all<TaskComment>(path));
+            setContent("");
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <label>
+          Comment
+          <textarea
+            value={content}
+            maxLength={20000}
+            onChange={(e) => setContent(e.target.value)}
+            required
+            disabled={saving}
+            placeholder="Add context or an update…"
+          />
+        </label>
+        <button
+          className="secondary"
+          disabled={loading || saving || !content.trim()}
+        >
+          {saving ? "Posting…" : "Post comment"}
+        </button>
+      </form>
+    </section>
+  );
+}
+function ProjectActivity({ project }: { project: string }) {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    all<AuditEvent>(`/projects/${project}/audit`)
+      .then((items) => {
+        if (active) setEvents(items.reverse());
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [project]);
+  const actions: Record<string, string> = {
+    "project.created": "Created project",
+    "item.created": "Created work item",
+    "item.updated": "Updated work item",
+    "document.created": "Created document",
+    "document.updated": "Updated document",
+    "membership.set": "Set membership",
+    "membership.removed": "Removed membership",
+    "comment.created": "Commented on task",
+  };
+  return (
+    <section className="activity-list" aria-label="Project activity">
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p>Loading activity…</p>
+      ) : events.length === 0 ? (
+        <p>No activity yet.</p>
+      ) : (
+        events.map((event, index) => (
+          <article key={`${event.at}/${index}`}>
+            <strong>{actions[event.action] ?? event.action}</strong>{" "}
+            <span>{event.target}</span>
+            <p className="byline">
+              <Byline
+                attribution={event.attribution}
+                principal={event.principal}
+              />{" "}
+              · {shortDate(event.at)}
+            </p>
+          </article>
+        ))
+      )}
+    </section>
+  );
+}

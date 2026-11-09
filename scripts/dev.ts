@@ -104,6 +104,7 @@ const server = createServer(async (request, response) => {
       query: Object.fromEntries(url.searchParams),
       headers: request.headers as Record<string, string>,
       principal,
+      userName: "Local Developer",
       body,
     });
     response.writeHead(result.status, {

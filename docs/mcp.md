@@ -30,12 +30,37 @@ Example prompts:
 | `list_work_items`, `get_work_item`, `create_work_item`, `update_work_item` | Initiatives, Epics, Tasks, hierarchy, assignment, descriptions, all five task states |
 | `list_documents`, `get_document`, `create_document`, `update_document` | All three nested documentation trees and Markdown content |
 | `list_document_revisions`, `get_document_revision`, `restore_document_revision` | Revision history, historical reads, restoration as a new revision |
+| `list_task_comments`, `create_task_comment` | Immutable Markdown task comments with author attribution |
 | `list_members`, `set_member`, `remove_member` | Project role grants, role changes, and revocation |
 | `list_audit_events` | Mutation audit history |
 
-There are 20 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, comments, full-text search, hard deletion of projects/items/documents, or identity invitations; MCP does not imply those capabilities.
+There are 22 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, full-text search, hard deletion of projects/items/documents, or identity invitations; MCP does not imply those capabilities.
 
 Creates require an `idempotencyKey`; reuse the same key and identical input only when retrying the same create. Updates and removals require `expectedVersion` from a recent read. Existing membership changes also require that version. Lists accept `limit` (default 25, maximum 100) and `cursor`; continue using `nextCursor` until absent. Large results may require a smaller page size. Successful product results are returned both as JSON text and under `structuredContent.result`. The profile tool returns its declared top-level profile object. Tool failures have `isError: true`; permission and conflict errors preserve the API status in their text.
+
+## Agent attribution on every write
+
+Every write tool accepts an optional top-level `agentName`. Supply your agent's name on **every** mutation, including project creation, task creation/updates, comments, documentation creation/updates/restoration, and membership grants/removal. Read tools do not accept this parameter. The name is trimmed, limited to 80 characters, and must be a single line without control or direction-changing characters.
+
+```json
+{
+  "project": "ROOT",
+  "id": "ROOT-3",
+  "patch": { "state": "Review" },
+  "expectedVersion": 2,
+  "agentName": "Release Assistant"
+}
+```
+
+For `update_work_item`, this records an attribution such as **Erick Brown via Release Assistant**. dnt derives the user name from the authenticated account; agents cannot supply or override it. The original immutable principal remains the authorization and audit identity. `agentName` is a self-reported display label, never a permission or verified agent identity. It is scoped to a single call so two agents sharing an OAuth connection cannot overwrite each other's names.
+
+Attribution snapshots are saved with every mutation's audit event, each document revision, work-item updates, and comments. The UI uses them in document history, page and work-item bylines, task comments, and the Administrator's Activity view. Restoration records the agent performing the restoration; the source revision keeps its original author. A later human or untagged edit replaces the current byline without carrying forward an earlier agent name.
+
+Reuse the same `agentName`, input, and idempotency key on retries. Reusing a create key with a different agent name returns a conflict and never rewrites the original attribution. Calls without `agentName` remain valid and show the account alone. Historical records without saved attribution keep their original principal as the fallback. When a display name is unavailable, dnt uses a verified account email if present, otherwise the principal.
+
+Refresh the dnt plugin's tool metadata in ChatGPT to discover the new arguments and comment tools. Ask your agent to use its chosen name on every dnt write.
+
+Comments are available on Tasks through `list_task_comments` and `create_task_comment`, and via GET/POST `/projects/{project}/items/{id}/comments`. Project members can read and post; comments are immutable, paginated oldest first, and limited to 20,000 characters. Their Markdown is rendered safely in the task dialog. REST bodies cannot set author or agent attribution.
 
 ## Transport and authorization
 

@@ -62,6 +62,18 @@ test("human and agent routes require different authenticated mechanisms", () => 
     AuthorizationType: "AWS_IAM",
   });
   serviceTemplate.resourceCountIs("AWS::ApiGatewayV2::Route", 5);
+  const apiPolicy = Object.entries(
+    serviceTemplate.findResources("AWS::IAM::Policy"),
+  ).find(([id]) =>
+    id.startsWith("ApiFunctionServiceRoleDefaultPolicy"),
+  )![1] as any;
+  const nameLookup = apiPolicy.Properties.PolicyDocument.Statement.find(
+    (s: any) => [s.Action].flat().includes("cognito-idp:AdminGetUser"),
+  );
+  assert.ok(
+    JSON.stringify(nameLookup.Resource).includes('"Ref":"CognitoPoolId"'),
+  );
+  assert.ok(!JSON.stringify(nameLookup.Resource).includes("*"));
   serviceTemplate.hasResourceProperties("AWS::Lambda::Function", {
     Runtime: "nodejs24.x",
     Environment: {
