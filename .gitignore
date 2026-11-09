@@ -1,0 +1,11 @@
+.codex-resume
+node_modules/
+dist/
+cdk.out*/
+.local/
+coverage/
+playwright-report/
+test-results/
+.env
+.env.*
+!*.example
