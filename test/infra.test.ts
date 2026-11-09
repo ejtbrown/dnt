@@ -201,6 +201,19 @@ test("MCP routes forward uncached requests and OAuth state is retained with TTL"
       },
     },
   });
+  const stage = Object.values(
+    serviceTemplate.findResources("AWS::ApiGatewayV2::Stage"),
+  )[0] as any;
+  const oauthRoute = Object.entries(
+    serviceTemplate.findResources("AWS::ApiGatewayV2::Route"),
+  ).find(
+    ([, route]: [string, any]) =>
+      route.Properties.RouteKey === "ANY /oauth/{proxy+}",
+  )![0];
+  assert.ok(
+    stage.DependsOn.includes(oauthRoute),
+    "Throttle settings must wait for the OAuth route",
+  );
   dataTemplate.resourceCountIs("AWS::DynamoDB::Table", 2);
   dataTemplate.hasResource("AWS::DynamoDB::Table", {
     DeletionPolicy: "Retain",
