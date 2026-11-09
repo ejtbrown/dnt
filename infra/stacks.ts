@@ -1,4 +1,5 @@
 import {
+  Aspects,
   CfnOutput,
   CfnParameter,
   Duration,
@@ -257,6 +258,12 @@ export class AppStack extends Stack {
       memoryLimit: 256,
       cacheControl: [deployment.CacheControl.noCache()],
     });
+    // LayerVersion's generated physical name omits the stack prefix. Keep CDK's
+    // deployment helper within the same namespace as the execution policy.
+    Aspects.of(this).add({ visit: resource => {
+      if (resource instanceof lambda.CfnLayerVersion)
+        resource.layerName = `${this.stackName}-${this.getLogicalId(resource)}`;
+    } });
     const zone = route53.HostedZone.fromHostedZoneAttributes(this, "Zone", {
       hostedZoneId: config.hostedZoneId,
       zoneName: config.zoneName,
