@@ -1,0 +1,7 @@
+{
+  "name": "dnt",
+  "confidential": false,
+  "callbackUrls": ["https://dnt.ejtbrown.com/auth/callback"],
+  "logoutUrls": ["https://dnt.ejtbrown.com/"],
+  "providers": ["COGNITO"]
+}

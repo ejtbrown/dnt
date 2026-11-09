@@ -1,0 +1,21 @@
+{
+  "account": "264702148921",
+  "region": "us-east-2",
+  "domain": "dnt.ejtbrown.com",
+  "zoneName": "ejtbrown.com",
+  "hostedZoneId": "Z01151571IOVJIAJ9NOC7",
+  "repository": "ejtbrown/dnt",
+  "connectionArn": "arn:aws:codeconnections:us-east-2:264702148921:connection/83f3ee78-3e8c-4a48-b0b1-966890645b7c",
+  "cognitoPoolId": "us-east-2_yRwS7loCA",
+  "cognitoClientId": "1at2j6h43a2vcjrdo7qb7me03o",
+  "authDomain": "https://auth.ejtbrown.com",
+  "projectCreators": [
+    "cognito:71cb9560-70f1-705f-1601-c326c5d5eafb"
+  ],
+  "agentRoles": [],
+  "repositoryOwnerId": "9349498",
+  "repositoryId": "1451000902",
+  "runnerActorIds": [
+    "9349498"
+  ]
+}
