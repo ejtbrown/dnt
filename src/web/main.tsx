@@ -69,10 +69,10 @@ function Dialog({
   title,
   children,
   close,
-  wide = false,
+  className,
 }: {
   title: string;
-  wide?: boolean;
+  className?: string;
   children: React.ReactNode;
   close: () => void;
 }) {
@@ -81,11 +81,7 @@ function Dialog({
     ref.current?.showModal();
   }, []);
   return (
-    <dialog
-      ref={ref}
-      onCancel={close}
-      className={wide ? "wide-dialog" : undefined}
-    >
+    <dialog ref={ref} onCancel={close} className={className}>
       <div className="dialog-title">
         <h2>{title}</h2>
         <button className="icon" aria-label="Close dialog" onClick={close}>
@@ -986,7 +982,13 @@ function App() {
       )}
       {modal && (
         <Dialog
-          wide={modal === "history"}
+          className={
+            modal === "item"
+              ? "work-item-dialog"
+              : modal === "history"
+                ? "wide-dialog"
+                : undefined
+          }
           title={
             modal === "project"
               ? "Create a project"

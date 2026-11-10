@@ -1353,6 +1353,19 @@ form .description-input {
 dialog.wide-dialog {
   max-width: 960px;
 }
+dialog.work-item-dialog {
+  width: 75vw;
+  max-width: none;
+}
+dialog.work-item-dialog .form-row > label {
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  dialog.work-item-dialog .form-row {
+    flex-direction: column;
+    gap: 0;
+  }
+}
 .history-controls {
   display: flex;
   flex-wrap: wrap;
