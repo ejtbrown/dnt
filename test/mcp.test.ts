@@ -1,3 +1,4 @@
+import { synchronize } from "../src/groups/sync.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -47,7 +48,7 @@ test("official MCP client initializes stateless HTTP, discovers complete typed t
     client = await connect(f);
   try {
     const tools = (await client.listTools()).tools;
-    assert.equal(tools.length, 22);
+    assert.equal(tools.length, 27);
     const openapi = JSON.parse(readFileSync("public/openapi.json", "utf8"));
     const expected = Object.values(openapi.paths)
       .flatMap((methods: any) =>
@@ -348,6 +349,41 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
         })
       ).isError,
       true,
+    );
+    await call("list_project_users", {
+      project: "ROOT",
+      search: "local",
+      limit: 1,
+    });
+    await call("reconcile_project_groups", {
+      project: "ROOT",
+      idempotencyKey: randomUUID(),
+      agentName: "Group Agent",
+    });
+    await synchronize(f.serviceDb, f.directory, origin, "ROOT");
+    assert.equal(
+      (await call("get_project_groups", { project: "ROOT" })).sync.status,
+      "ready",
+    );
+    assert.equal(
+      (
+        await call("list_project_group_users", {
+          project: "ROOT",
+          role: "Administrator",
+        })
+      ).items.length,
+      1,
+    );
+    const beforeDelete = await call("get_project", { project: "ROOT" });
+    await call("delete_project", {
+      project: "ROOT",
+      expectedVersion: beforeDelete.version,
+      agentName: "Group Agent",
+    });
+    await synchronize(f.serviceDb, f.directory, origin, "ROOT");
+    assert.equal(
+      (await call("get_project_groups", { project: "ROOT" })).sync.status,
+      "deleted",
     );
     assert.deepEqual(
       [...invoked].sort(),

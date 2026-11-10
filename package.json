@@ -19,7 +19,8 @@
     "test:browser": "playwright test",
     "protect-main": "tsx scripts/protect-main.ts",
     "smoke:storage": "tsx scripts/smoke-storage.ts",
-    "smoke:mcp": "tsx scripts/smoke-mcp.ts"
+    "smoke:mcp": "tsx scripts/smoke-mcp.ts",
+    "smoke:groups": "tsx scripts/smoke-groups.ts"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",

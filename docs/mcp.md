@@ -26,17 +26,18 @@ Example prompts:
 | Tools | Product capability |
 | --- | --- |
 | `get_identity`, `get_profile` | Current principal, project creation eligibility, stable account profile |
-| `list_projects`, `get_project`, `create_project` | Project discovery and creation |
+| `list_projects`, `get_project`, `create_project`, `delete_project` | Project discovery, creation, and soft deletion |
 | `list_work_items`, `get_work_item`, `create_work_item`, `update_work_item` | Initiatives, Epics, Tasks, hierarchy, assignment, descriptions, all five task states |
 | `list_documents`, `get_document`, `create_document`, `update_document` | All three nested documentation trees and Markdown content |
 | `list_document_revisions`, `get_document_revision`, `restore_document_revision` | Revision history, historical reads, restoration as a new revision |
 | `list_task_comments`, `create_task_comment` | Immutable Markdown task comments with author attribution |
 | `list_members`, `set_member`, `remove_member` | Project role grants, role changes, and revocation |
+| `list_project_users`, `get_project_groups`, `list_project_group_users`, `reconcile_project_groups` | Search existing Cognito accounts, inspect group membership and synchronization, retry provisioning/cleanup |
 | `list_audit_events` | Mutation audit history |
 
-There are 22 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, full-text search, hard deletion of projects/items/documents, or identity invitations; MCP does not imply those capabilities.
+There are 27 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, full-text search, hard deletion of projects/items/documents, or identity invitations; MCP does not imply those capabilities.
 
-Creates require an `idempotencyKey`; reuse the same key and identical input only when retrying the same create. Updates and removals require `expectedVersion` from a recent read. Existing membership changes also require that version. Lists accept `limit` (default 25, maximum 100) and `cursor`; continue using `nextCursor` until absent. Large results may require a smaller page size. Successful product results are returned both as JSON text and under `structuredContent.result`. The profile tool returns its declared top-level profile object. Tool failures have `isError: true`; permission and conflict errors preserve the API status in their text.
+Creates require an `idempotencyKey`; reuse the same key and identical input only when retrying the same create. Updates and removals require `expectedVersion` from a recent read. Existing membership changes also require that version. Lists accept `limit` (default 25, maximum 100; Cognito user listings maximum 60) and `cursor`; continue using `nextCursor` until absent. Large results may require a smaller page size. Successful product results are returned both as JSON text and under `structuredContent.result`. The profile tool returns its declared top-level profile object. Tool failures have `isError: true`; permission and conflict errors preserve the API status in their text.
 
 ## Agent attribution on every write
 
@@ -92,3 +93,13 @@ Run `npm run check` for transport, full product parity, OAuth consent/PKCE/repla
 For manual verification, connect the plugin and exercise discovery, sign-in, permitted reads/writes, denied tree access, stale versions, and refresh. Inspect logs for errors without recording tokens or authorization codes. The server never logs request bodies or tokens.
 
 OAuth recovery requires care: restoring an old OAuth table can resurrect revoked grants or used refresh tokens. Prefer a fresh empty OAuth table and require reconnection after recovery rather than restoring old credential state. Product data recovery is independent.
+
+## Project Cognito groups
+
+Project creation queues `dnt-proj-<SLUG>-admin`, `dnt-proj-<SLUG>-maintainer`, and `dnt-proj-<SLUG>-viewer` in the shared pool. Use `list_project_users` to find an existing account by email prefix, then `set_member` with its immutable principal. Roles map Administrator → admin, Maintainer → maintainer, User → viewer. User retains its existing task and User-document editing permissions. Each person has one assigned role; higher roles inherit lower permissions. IAM principals remain dnt-only memberships.
+
+`set_member` and `remove_member` change access immediately and queue Cognito synchronization. Poll `get_project_groups` for `ready`; use `list_project_group_users` to inspect actual group users. dnt memberships remain authoritative. External Cognito changes do not grant dnt access and are overwritten by reconciliation. Retry errors with `reconcile_project_groups` and a new idempotency key. These administration tools require project Administrator permission. All write tools accept `agentName` and record attribution.
+
+`delete_project` requires the current project version. It immediately removes access and hides the project from listings, then deletes its three managed groups asynchronously. Data and audit records remain retained for recovery; the slug stays reserved. Former project administrators can continue calling `get_project_groups` and `reconcile_project_groups` after deletion to verify or retry cleanup. Wait for status `deleted`. There is no self-service project restoration or hard purge.
+
+Use `list_projects` with `includeDeleted: true` to discover deleted projects you administered and resume cleanup checks after reconnecting. Deleted entries include `deletedAt`; they cannot be opened for content. The web sidebar offers the same list under Deleted projects.

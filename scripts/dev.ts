@@ -1,3 +1,5 @@
+import { MemoryDirectory } from "../src/groups/memory.js";
+import { synchronize } from "../src/groups/sync.js";
 import { createServer } from "node:http";
 import {
   mkdirSync,
@@ -49,7 +51,8 @@ class LocalBlobs implements Blobs {
 }
 const db = new LocalStore();
 const principal = "cognito:local-developer";
-const service = new Service(db, new LocalBlobs(), [principal]);
+const directory = new MemoryDirectory();
+const service = new Service(db, new LocalBlobs(), [principal], directory);
 // Local identity exists only in this loopback development server, never in Lambda.
 const vite = await createViteServer({
   server: { middlewareMode: true },
@@ -107,6 +110,11 @@ const server = createServer(async (request, response) => {
       userName: "Local Developer",
       body,
     });
+    if (result.status < 300 && request.method !== "GET") {
+      for (const row of db.rows.values())
+        if (row.sk === "GROUP_SYNC" && row.value.status === "pending")
+          await synchronize(db, directory, service.origin, row.value.project);
+    }
     response.writeHead(result.status, {
       "content-type": "application/json",
       "cache-control": "no-store",

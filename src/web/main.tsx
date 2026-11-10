@@ -1,3 +1,4 @@
+import { ProjectGroups, UserPicker } from "./groups.js";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -115,6 +116,8 @@ function App() {
   const [selectedDoc, setSelectedDoc] = useState<
     Document & { content: string }
   >();
+  const [deletedProjects, setDeletedProjects] = useState<Membership[]>([]);
+  const [deletedProject, setDeletedProject] = useState("");
   const [members, setMembers] = useState<Membership[]>([]);
   const [modal, setModal] = useState<
     "project" | "item" | "doc" | "member" | "history" | null
@@ -140,14 +143,17 @@ function App() {
   async function loadProjects(preferred?: string) {
     const [identity, memberships] = await Promise.all([
       api<Me>("/me"),
-      all<Membership>("/projects"),
+      all<Membership>("/projects?includeDeleted=true"),
     ]);
     setMe(identity);
+    setDeletedProjects(memberships.filter((m) => m.deletedAt));
     const results = await Promise.all(
-      memberships.map(async (m) => ({
-        ...(await api<Project>(`/projects/${m.project}`)),
-        role: m.role,
-      })),
+      memberships
+        .filter((m) => !m.deletedAt)
+        .map(async (m) => ({
+          ...(await api<Project>(`/projects/${m.project}`)),
+          role: m.role,
+        })),
     );
     setProjects(results);
     setSlug(
@@ -345,6 +351,20 @@ function App() {
             );
           })}
         </nav>
+        {!!deletedProjects.length && (
+          <details className="deleted-projects">
+            <summary>Deleted projects</summary>
+            {deletedProjects.map((p) => (
+              <button
+                className="quiet"
+                key={p.project}
+                onClick={() => setDeletedProject(p.project)}
+              >
+                Check {p.project} deletion
+              </button>
+            ))}
+          </details>
+        )}
         <div className="sidebar-bottom">
           <div className="connection">
             <span className="tiny-dot" />
@@ -834,13 +854,29 @@ function App() {
                       Administrators manage all content and project access.
                     </p>
                   </div>
+                  <ProjectGroups
+                    key={slug}
+                    project={slug}
+                    revision={JSON.stringify(
+                      members.map((m) => [m.principal, m.version]),
+                    )}
+                    onDelete={async () => {
+                      setDeletedProject(slug);
+                      setTab("Board");
+                      await loadProjects();
+                    }}
+                  />
                   <div className="member-list">
                     {members.map((member) => (
                       <div key={member.principal}>
                         <div className="avatar">
                           {member.principal.startsWith("iam:") ? "AI" : "U"}
                         </div>
-                        <code>{member.principal}</code>
+                        <div className="member-identity">
+                          <bdi>{member.name ?? member.principal}</bdi>
+                          {member.email && <small>{member.email}</small>}
+                          <code>{member.principal}</code>
+                        </div>
                         <select
                           aria-label={`Role for ${member.principal}`}
                           value={member.role}
@@ -905,6 +941,11 @@ function App() {
           )}
         </div>
       </main>
+      {deletedProject && (
+        <Dialog title="Project deletion" close={() => setDeletedProject("")}>
+          <ProjectGroups project={deletedProject} deleted />
+        </Dialog>
+      )}
       {modal && (
         <Dialog
           title={
@@ -1005,6 +1046,7 @@ function App() {
             />
           ) : modal === "member" ? (
             <MemberForm
+              project={slug}
               busy={busy}
               save={(body, key) =>
                 run(async () => {
@@ -1363,9 +1405,11 @@ function DocForm({
   );
 }
 function MemberForm({
+  project,
   save,
   busy,
 }: {
+  project: string;
   save: (body: any, key: string) => void;
   busy: boolean;
 }) {
@@ -1380,6 +1424,10 @@ function MemberForm({
         save(body, key);
       }}
     >
+      <UserPicker
+        project={project}
+        select={(user) => setPrincipal(user.principal)}
+      />
       <label>
         Identity
         <input

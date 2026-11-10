@@ -32,6 +32,7 @@ All records have `pk`, `sk`, `version`, and `value`. No secondary indexes or sca
 
 | Partition key | Sort key | Record / access |
 | --- | --- | --- |
+| `PROJECT#ROOT` | `GROUP_SYNC` | Durable Cognito synchronization request, generation, status, and safe error |
 | `PROJECT#ROOT` | `META` | Project, sequence, administrator count, mutation version |
 | `PROJECT#ROOT` | `ITEM#000000000001` | Work item by project ordinal |
 | `PROJECT#ROOT` | `MEMBER#<principal>` | Project membership listing |
@@ -77,3 +78,13 @@ Data has CloudFormation retention, DynamoDB deletion protection and point-in-tim
 The deployment tooling owns the CodeBuild runner, GitHub role, CloudFormation execution policy, and runtime permissions boundary. Runtime roles are restricted to dnt resources. Infrastructure permissions are scoped by resource names where possible; API Gateway and CloudFront creation/management require broader service permissions in this first version. Treat deployment access as privileged infrastructure access. The tooling stack and its policies are administrator-owned, not part of the routine application deployment.
 
 The checked-in CDK release bundles a `minimatch` version flagged by `npm audit` for a [moderate build-time denial-of-service advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249). It is not in the browser or Lambda bundle. CDK bundles this dependency, so an npm override does not replace it. Update CDK when its bundled dependency is fixed; do not downgrade infrastructure libraries solely to make an audit report empty.
+
+## Project group synchronization
+
+Project creation, role changes/removal, project deletion, and explicit reconciliation write `GROUP_SYNC` in the same transaction as permissions and audit. DynamoDB Streams delivers only pending synchronization rows to a dedicated Lambda. The worker reads current dnt memberships and creates/converges the three managed Cognito groups. Reserved concurrency 1 serializes Cognito changes; each change and completion checks the request generation, so newer requests supersede older work. Failed partial updates are idempotent and retry six times within six hours; exhausted events go to an encrypted SQS failure queue retained for 14 days. The queue has a CloudWatch alarm; like existing alarms, no notification subscription is configured.
+
+The service records Cognito username/display snapshots with assignments after verifying their subject. The worker rechecks the immutable subject on synchronization so a deleted and recreated username cannot inherit an old account’s group assignment. Search uses a bounded, paginated email-prefix query; only project administrators can query the shared directory. API/MCP Lambdas have read-only directory privileges. Only the worker can mutate groups. Cognito grants are scoped to the shared user pool (Cognito IAM does not scope these operations to group names); code restricts names to validated project slugs. Every existing group must have the exact dnt origin/project/role ownership description and no IAM role before it can be changed. Name collisions become visible sync errors, never automatic adoption. No user accounts or memberships in unrelated groups are deleted.
+
+DynamoDB remains the access authority; JWT group claims are not used for project authorization. Group changes made outside dnt are overwritten on reconciliation and never independently grant dnt access. Project deletion stores a tombstone under the original slug, blocks content reads/writes immediately, and queues group deletion. Membership rows are retained for recovery and for former administrators to monitor/retry cleanup; project lists filter tombstones while preserving pagination. Documentation, work, and audit remain retained. Slugs and ticket identifiers cannot be reused.
+
+The Members page shows group names/status and actual users, searches existing Cognito accounts, changes/removes assignments, retries synchronization, and deletes projects. Legacy projects without a synchronization row can be provisioned using Retry synchronization or `reconcile_project_groups`; legacy memberships without usernames are resolved by the worker. Deleted Cognito accounts are reported as missing assignments for administrators to remove.

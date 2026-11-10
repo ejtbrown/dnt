@@ -31,12 +31,16 @@ const project = object({
   createdAt: date,
   updatedAt: date,
 });
+(project.properties as Record<string, unknown>).deletedAt = date;
 const membership = object({
   project: string,
   principal: string,
   role: { enum: roles },
   version,
 });
+(membership.properties as Record<string, unknown>).deletedAt = date;
+for (const key of ["username", "name", "email"])
+  (membership.properties as Record<string, unknown>)[key] = string;
 const item = object(
   {
     id: string,
@@ -104,6 +108,44 @@ const schemas: Record<string, unknown> = {
     attribution: ref("Attribution"),
   }),
   Project: project,
+  DirectoryUser: object(
+    {
+      principal: string,
+      username: string,
+      name: string,
+      email: string,
+      enabled: { type: "boolean" },
+      status: string,
+    },
+    ["principal", "username", "name", "enabled", "status"],
+  ),
+  GroupSync: object(
+    {
+      project: string,
+      generation: version,
+      status: { enum: ["pending", "syncing", "ready", "deleted", "error"] },
+      requestedAt: date,
+      completedAt: date,
+      error: string,
+      missingUsers: { type: "integer" },
+    },
+    ["project", "generation", "status", "requestedAt"],
+  ),
+  ProjectGroups: object({
+    project: string,
+    deleted: { type: "boolean" },
+    groups: {
+      type: "array",
+      items: object({
+        role: { enum: roles },
+        name: string,
+        exists: { type: "boolean" },
+        owned: { type: "boolean" },
+      }),
+    },
+    sync: { anyOf: [ref("GroupSync"), { type: "null" }] },
+  }),
+  GroupSyncQueued: object({ project: string, status: { const: "pending" } }),
   Membership: membership,
   WorkItem: item,
   Document: document,
@@ -139,6 +181,7 @@ for (const [name, schema] of Object.entries({
 }))
   schemas[name] = z.toJSONSchema(schema, { io: "input" });
 for (const name of [
+  "DirectoryUser",
   "Membership",
   "WorkItem",
   "Document",
@@ -153,7 +196,9 @@ const pathParameter = (name: string) => ({
   name,
   in: "path",
   required: true,
-  schema: name === "tree" ? { type: "string", enum: roles } : string,
+  schema: ["tree", "role"].includes(name)
+    ? { type: "string", enum: roles }
+    : string,
 });
 const header = (name: string, required: boolean, description: string) => ({
   name,
@@ -205,6 +250,26 @@ function route(
         description: "Pass nextCursor unchanged from the previous page.",
       },
     );
+  if (operationId === "listProjectUsers")
+    parameters.push({
+      name: "search",
+      in: "query",
+      description: "Email prefix, case-sensitive",
+      schema: { type: "string", maxLength: 128 },
+    });
+  if (["listProjectUsers", "listProjectGroupUsers"].includes(operationId)) {
+    const limit = parameters.find((p: any) => p.name === "limit") as any;
+    limit.schema.maximum = 60;
+    limit.schema.default = 60;
+  }
+  if (operationId === "listProjects")
+    parameters.push({
+      name: "includeDeleted",
+      in: "query",
+      schema: { type: "boolean", default: false },
+      description:
+        "Include deleted projects only for their former administrators to monitor/retry group cleanup.",
+    });
   const responses: Record<string, unknown> = {};
   for (const code of [400, 401, 403, 404, 409, 412, 413, 428, 429, 500])
     responses[code] = {
@@ -416,6 +481,49 @@ route(
   "listAuditEvents",
   "Read mutation audit metadata; Administrator required",
   "AuditPage",
+  undefined,
+  { paginated: true },
+);
+route(
+  "/projects/{project}",
+  "delete",
+  "deleteProject",
+  "Revoke project access and delete managed Cognito groups asynchronously; records retained, slug reserved",
+  "Project",
+  undefined,
+  { version: true, status: 202 },
+);
+route(
+  "/projects/{project}/groups",
+  "get",
+  "getProjectGroups",
+  "Read managed groups and synchronization status; Administrator required, including after deletion",
+  "ProjectGroups",
+);
+route(
+  "/projects/{project}/groups/reconcile",
+  "post",
+  "reconcileProjectGroups",
+  "Queue reconciliation from dnt memberships to Cognito; Administrator required",
+  "GroupSyncQueued",
+  undefined,
+  { status: 202 },
+);
+route(
+  "/projects/{project}/users",
+  "get",
+  "listProjectUsers",
+  "Search existing Cognito users by email prefix; Administrator required",
+  "DirectoryUserPage",
+  undefined,
+  { paginated: true },
+);
+route(
+  "/projects/{project}/groups/{role}/users",
+  "get",
+  "listProjectGroupUsers",
+  "List actual users in a managed Cognito group; Administrator required",
+  "DirectoryUserPage",
   undefined,
   { paginated: true },
 );
