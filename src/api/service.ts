@@ -12,7 +12,7 @@ import {
   projectInput,
   agentNameSchema,
   commentInput,
-  type TaskComment,
+  type WorkItemComment,
   type Attribution,
   itemInput,
   itemPatch,
@@ -438,7 +438,10 @@ export class Service {
           target: slug,
         }));
       if (child === "groups" && !id && method === "GET") {
-        const sync = await this.db.get<GroupSync>(pk, syncKey(slug).sk);
+        const sync = need(
+          await this.db.get<GroupSync>(pk, syncKey(slug).sk),
+          "Project synchronization not found",
+        );
         const groups = await Promise.all(
           projectGroups(slug).map(async (g) => {
             const existing = await this.directory!.group(g.name);
@@ -455,7 +458,7 @@ export class Service {
             project: slug,
             deleted: !!project.value.deletedAt,
             groups,
-            sync: sync?.value ?? null,
+            sync: sync.value,
           },
         };
       }
@@ -626,33 +629,20 @@ export class Service {
         if (!/^[0-9a-f-]{36}$/.test(commentId))
           throw new HttpError(404, "Comment not found");
         const indexKey = `COMMENT_ID#${itemKey(slug, id)}#${commentId}`;
-        const index = await this.db.get<{ key: string }>(pk, indexKey);
-        let current = index
-          ? await this.db.get<TaskComment>(pk, index.value.key)
-          : undefined;
-        // Historical comments predate the ID index. Resolve and backfill on edit.
-        if (!index) {
-          let cursor: string | undefined;
-          do {
-            const page = await this.db.query<TaskComment>(
-              pk,
-              prefix,
-              100,
-              cursor,
-            );
-            current = page.rows.find((r) => r.value.id === commentId);
-            cursor = page.next;
-          } while (!current && cursor);
-        }
-        const old = need(current, "Comment not found");
+        const index = need(
+          await this.db.get<{ key: string }>(pk, indexKey),
+          "Comment not found",
+        );
+        const old = need(
+          await this.db.get<WorkItemComment>(pk, index.value.key),
+          "Comment not found",
+        );
         if (path[6] === "revisions" && path.length === 7 && method === "GET") {
-          const page = await this.page<TaskComment>(
+          const page = await this.page<WorkItemComment>(
             pk,
             revisionPrefix(commentId),
             req,
           );
-          if (!page.items.length && !req.query?.cursor)
-            page.items.push(old.value);
           return { status: 200, body: page };
         }
         if (path.length !== 6 || method !== "PATCH")
@@ -662,7 +652,7 @@ export class Service {
         this.expected(req, old);
         const input = commentInput.parse(req.body);
         return this.mutate(req, membership, project, async () => {
-          const value: TaskComment = {
+          const value: WorkItemComment = {
             ...old.value,
             ...input,
             itemId: id,
@@ -671,7 +661,6 @@ export class Service {
             updatedBy: req.principal,
             editAttribution: this.attribution(req),
           };
-          const priorKey = `${revisionPrefix(commentId)}${String(old.version).padStart(12, "0")}`;
           const writes: Write[] = [
             { row: row(pk, old.sk, value), expected: old.version },
             {
@@ -683,13 +672,6 @@ export class Service {
               expected: null,
             },
           ];
-          if (!(await this.db.get(pk, priorKey)))
-            writes.push({ row: row(pk, priorKey, old.value), expected: null });
-          if (!index)
-            writes.push({
-              row: { pk, sk: indexKey, version: 1, value: { key: old.sk } },
-              expected: null,
-            });
           return {
             response: { status: 200, body: value },
             writes,
@@ -702,16 +684,15 @@ export class Service {
       if (method === "GET")
         return {
           status: 200,
-          body: await this.page<TaskComment>(pk, prefix, req),
+          body: await this.page<WorkItemComment>(pk, prefix, req),
         };
       if (method === "POST") {
         const input = commentInput.parse(req.body);
         return this.mutate(req, membership, project, async () => {
-          const value: TaskComment = {
+          const value: WorkItemComment = {
             ...input,
             id: randomUUID(),
             project: slug,
-            taskId: id,
             itemId: id,
             version: 1,
             createdAt: now(),

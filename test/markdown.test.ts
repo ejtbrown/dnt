@@ -189,6 +189,8 @@ test("all work items support editable Markdown comments with immutable, paginate
     const source = "    indented code\n\nA hard break  \nnext\n";
     const created = await request("POST", path, { content: source }, user);
     assert.equal(created.status, 201);
+    assert.equal(created.body.itemId, item.id);
+    assert.equal("taskId" in created.body, false);
     assert.equal(created.body.content, source);
     const commentPath = `${path}/${created.body.id}`;
     assert.equal(
@@ -272,42 +274,4 @@ test("all work items support editable Markdown comments with immutable, paginate
     assert.equal(comments.length, 1);
     assert.equal(comments[0].version, 3);
   }
-});
-test("legacy comments acquire an index and complete history on first edit", async () => {
-  const { request, db } = await setup();
-  const item = (
-    await request("POST", "/projects/ROOT/items", {
-      kind: "Initiative",
-      title: "Legacy",
-    })
-  ).body;
-  const path = `/projects/ROOT/items/${item.id}/comments`;
-  const comment = (await request("POST", path, { content: "original" }, user))
-    .body;
-  for (const [key, row] of db.rows)
-    if (row.sk.startsWith("COMMENT_ID#") || row.sk.startsWith("COMMENT_REV#"))
-      db.rows.delete(key);
-  assert.equal(
-    (await request("GET", `${path}/${comment.id}/revisions`)).body.items[0]
-      .content,
-    "original",
-  );
-  assert.equal(
-    (
-      await request(
-        "PATCH",
-        `${path}/${comment.id}`,
-        { content: "new" },
-        user,
-        1,
-      )
-    ).status,
-    200,
-  );
-  assert.deepEqual(
-    (await request("GET", `${path}/${comment.id}/revisions`)).body.items.map(
-      (c: any) => c.content,
-    ),
-    ["original", "new"],
-  );
 });

@@ -49,13 +49,8 @@ export interface Attribution {
   userName: string;
   agentName?: string;
 }
-export const attributionLabel = (
-  value: Attribution | undefined,
-  principal: string,
-) =>
-  value
-    ? `${value.userName}${value.agentName ? ` via ${value.agentName}` : ""}`
-    : principal;
+export const attributionLabel = (value: Attribution) =>
+  `${value.userName}${value.agentName ? ` via ${value.agentName}` : ""}`;
 
 export const projectInput = z
   .object({
@@ -131,7 +126,7 @@ export interface WorkItem {
   createdAt: string;
   updatedAt: string;
   updatedBy: string;
-  attribution?: Attribution;
+  attribution: Attribution;
 }
 export interface Document {
   id: string;
@@ -144,7 +139,7 @@ export interface Document {
   createdAt: string;
   updatedAt: string;
   updatedBy: string;
-  attribution?: Attribution;
+  attribution: Attribution;
 }
 export const commentInput = z
   .object({
@@ -155,15 +150,13 @@ export const commentInput = z
       .refine((value) => !!value.trim(), "Comment cannot be blank"),
   })
   .strict();
-export interface TaskComment {
-  itemId?: string;
+export interface WorkItemComment {
+  itemId: string;
   updatedAt?: string;
   updatedBy?: string;
   editAttribution?: Attribution;
   id: string;
   project: string;
-  // Legacy field retained for existing API clients; contains any work item ID.
-  taskId: string;
   content: string;
   version: number;
   createdAt: string;
@@ -175,7 +168,7 @@ export interface AuditEvent {
   target: string;
   principal: string;
   at: string;
-  attribution?: Attribution;
+  attribution: Attribution;
 }
 export interface Page<T> {
   items: T[];

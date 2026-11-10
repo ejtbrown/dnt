@@ -116,17 +116,17 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
       idempotencyKey: randomUUID(),
       agentName: "Builder",
     };
-    const first = await call("create_task_comment", comment);
-    assert.deepEqual(await call("create_task_comment", comment), first);
+    const first = await call("create_work_item_comment", comment);
+    assert.deepEqual(await call("create_work_item_comment", comment), first);
     const changedAgent = await client.callTool({
-      name: "create_task_comment",
+      name: "create_work_item_comment",
       arguments: { ...comment, agentName: "Reviewer" },
     });
     assert.equal(changedAgent.isError, true);
     assert.match(JSON.stringify(changedAgent.content), /409/);
     await Promise.all(
       ["Agent A", "Agent B"].map((agentName) =>
-        call("create_task_comment", {
+        call("create_work_item_comment", {
           ...comment,
           input: { content: agentName },
           idempotencyKey: randomUUID(),
@@ -135,7 +135,7 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
       ),
     );
     const comments = (
-      await call("list_task_comments", { project: "ROOT", id: task.id })
+      await call("list_work_item_comments", { project: "ROOT", id: task.id })
     ).items;
     assert.equal(comments.length, 3);
     for (const c of comments.slice(1))
@@ -186,7 +186,7 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
       "Agent\u202eAdmin",
     ]) {
       const bad = await client.callTool({
-        name: "create_task_comment",
+        name: "create_work_item_comment",
         arguments: { ...comment, idempotencyKey: randomUUID(), agentName },
       });
       assert.equal(bad.isError, true);
@@ -199,20 +199,13 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
       assert.equal(
         (
           await client.callTool({
-            name: "create_task_comment",
+            name: "create_work_item_comment",
             arguments: { ...comment, ...spoof },
           })
         ).isError,
         true,
       );
-    assert.equal(
-      attributionLabel(undefined, "cognito:legacy"),
-      "cognito:legacy",
-    );
-    assert.equal(
-      attributionLabel(first.attribution, admin),
-      "Owner via Builder",
-    );
+    assert.equal(attributionLabel(first.attribution), "Owner via Builder");
   } finally {
     await client.close();
   }

@@ -6,7 +6,7 @@ interface GroupStatus {
   project: string;
   deleted: boolean;
   groups: { role: Role; name: string; exists: boolean; owned: boolean }[];
-  sync: GroupSync | null;
+  sync: GroupSync;
 }
 export function ProjectGroups({
   project,
@@ -33,7 +33,7 @@ export function ProjectGroups({
         if (cancelled) return;
         setStatus(value);
         setError("");
-        if (["pending", "syncing"].includes(value.sync?.status ?? ""))
+        if (["pending", "syncing"].includes(value.sync.status))
           timer = setTimeout(load, 2500);
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
@@ -69,12 +69,10 @@ export function ProjectGroups({
         </p>
       )}
       <p role="status">
-        {status
-          ? `Synchronization: ${status.sync?.status ?? "not configured"}`
-          : "Loading groups…"}
+        {status ? `Synchronization: ${status.sync.status}` : "Loading groups…"}
       </p>
-      {status?.sync?.error && <p role="alert">{status.sync.error}</p>}
-      {!!status?.sync?.missingUsers && (
+      {status?.sync.error && <p role="alert">{status.sync.error}</p>}
+      {!!status?.sync.missingUsers && (
         <p>
           {status.sync.missingUsers} assigned account(s) no longer exist in
           Cognito. Remove their dnt memberships.

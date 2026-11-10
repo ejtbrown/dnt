@@ -46,7 +46,7 @@ test("MCP writes appear as the account via the agent in comments, document histo
       idempotencyKey: randomUUID(),
       agentName: "Builder",
     });
-    await call("create_task_comment", {
+    await call("create_work_item_comment", {
       project: "MCP",
       id: t.id,
       input: { content: "Ready for review." },
