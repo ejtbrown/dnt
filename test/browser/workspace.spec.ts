@@ -116,6 +116,11 @@ test("a team can create a project, plan work, move tasks, and revise documentati
   await page
     .getByRole("textbox", { name: "Page content", exact: true })
     .fill("# Updated guide\n\nYour second revision.");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("link", { name: "dnt home", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Page content", exact: true }),
+  ).toContainText("# Updated guide");
   await page.getByRole("button", { name: "Save page", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Updated guide" }),
