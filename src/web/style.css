@@ -1310,3 +1310,116 @@ form .description-input {
   display: block;
   margin-top: 8px;
 }
+
+/* Native Markdown editing and immutable revision views. */
+.markdown-field {
+  min-width: 0;
+  margin: 12px 0;
+}
+.markdown-editor {
+  border: 1px solid #cad5c1;
+  border-radius: 6px;
+  background: #fbfcf8;
+  overflow: hidden;
+}
+.markdown-editor:focus-within {
+  outline: 2px solid #809c6d;
+  outline-offset: 1px;
+}
+.markdown-editor .cm-editor {
+  font-size: 13px;
+}
+.markdown-editor .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  line-height: 1.65;
+  max-height: 55vh;
+  overflow: auto;
+}
+.markdown-editor .cm-content {
+  min-height: 170px;
+  padding: 14px 10px;
+}
+.markdown-editor .cm-focused {
+  outline: none;
+}
+.markdown-editor .cm-line {
+  overflow-wrap: anywhere;
+}
+.markdown-field > small {
+  display: block;
+  margin-top: 5px;
+  text-align: right;
+}
+dialog.wide-dialog {
+  max-width: 960px;
+}
+.history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+.markdown-source,
+.revision-diff pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    13px/1.65 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  margin: 0;
+  padding: 12px;
+}
+.markdown-source {
+  background: #f4f6f0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.revision-diff {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.diff-added {
+  background: #e5f2e5;
+  color: #244b2d;
+  border-left: 4px solid #4c9259;
+}
+.diff-removed {
+  background: #fbe8e5;
+  color: #7e3029;
+  border-left: 4px solid #c36d60;
+}
+.diff-unchanged {
+  background: #f7f8f4;
+  color: #5d6557;
+  border-left: 4px solid #d4dacd;
+}
+.diff-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px 0;
+}
+.revision-diff details summary,
+.comment-history summary {
+  cursor: pointer;
+  padding: 10px;
+}
+.comment-history {
+  margin-top: 10px;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+.task-comment {
+  overflow-wrap: anywhere;
+}
+.document-history,
+.markdown,
+.markdown-field,
+.task-comments {
+  min-width: 0;
+}
