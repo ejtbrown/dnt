@@ -61,7 +61,7 @@ test("human and agent routes require different authenticated mechanisms", () => 
     RouteKey: "ANY /agent/v1/{proxy+}",
     AuthorizationType: "AWS_IAM",
   });
-  serviceTemplate.resourceCountIs("AWS::ApiGatewayV2::Route", 5);
+  serviceTemplate.resourceCountIs("AWS::ApiGatewayV2::Route", 6);
   const apiPolicy = Object.entries(
     serviceTemplate.findResources("AWS::IAM::Policy"),
   ).find(([id]) =>
@@ -349,4 +349,26 @@ test("global administration is read from Cognito and no runtime creator allowlis
     serviceTemplate.findResources("AWS::Lambda::Function"),
   ) as any[])
     assert.ok(!fn.Properties.Environment?.Variables?.PROJECT_CREATORS);
+});
+
+test("only the exact public page GET is anonymous and direct links reach the SPA", () => {
+  serviceTemplate.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+    RouteKey: "GET /api/v1/public/documents/{reference}",
+    AuthorizationType: "NONE",
+  });
+  const routing = Object.values(
+    serviceTemplate.findResources("AWS::CloudFront::Function"),
+  )[0] as any;
+  const handler = new Function(
+    `${routing.Properties.FunctionCode}; return handler;`,
+  )();
+  for (const uri of ["/t/ROOT-1", "/d/admin-uuid", "/auth/callback"])
+    assert.equal(handler({ request: { uri } }).uri, "/index.html");
+  for (const uri of [
+    "/api/v1/projects",
+    "/api/v1/public/documents/ref",
+    "/assets/app.js",
+    "/d/x/revisions",
+  ])
+    assert.equal(handler({ request: { uri } }).uri, uri);
 });

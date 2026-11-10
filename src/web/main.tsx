@@ -21,6 +21,8 @@ import {
   AlertCircle,
   Code2,
   ArrowLeft,
+  Link as LinkIcon,
+  Trash2,
 } from "lucide-react";
 import { Content, MarkdownField } from "./markdown.js";
 import { DocumentHistory } from "./document-history.js";
@@ -41,8 +43,10 @@ import {
   type State,
   type Kind,
   type Me,
+  type PublicDocument,
 } from "../shared/model.js";
-import { api, all, initialize, login, logout } from "./api.js";
+import { itemLink, documentLink, parseDirectLink } from "../shared/links.js";
+import { api, ApiError, all, initialize, login, logout } from "./api.js";
 import "./style.css";
 
 type Tab = "Board" | "Planning" | "Documentation" | "Members" | "Activity";
@@ -88,7 +92,7 @@ function Dialog({
           <X size={20} />
         </button>
       </div>
-      {children}
+      <div className="dialog-body">{children}</div>
     </dialog>
   );
 }
@@ -112,6 +116,10 @@ function App() {
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [local, setLocal] = useState(false);
+  const [path, setPath] = useState(location.pathname);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [publicDoc, setPublicDoc] = useState<PublicDocument>();
+  const [linkUnavailable, setLinkUnavailable] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [me, setMe] = useState<Me>();
@@ -176,6 +184,7 @@ function App() {
   useEffect(() => {
     initialize()
       .then(({ config, authenticated }) => {
+        setPath(location.pathname);
         setLocal(!!config.local);
         setAuthed(authenticated);
         if (authenticated) return loadProjects();
@@ -183,6 +192,105 @@ function App() {
       .catch((e) => setError(e.message))
       .finally(() => setReady(true));
   }, []);
+  useEffect(() => {
+    const pop = () => setPath(location.pathname);
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  function navigate(next: string) {
+    if (next !== location.pathname) history.pushState({}, "", next);
+    setPath(next);
+  }
+  function followInternalLink(event: React.MouseEvent) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    const anchor = (event.target as Element).closest("a");
+    if (!anchor || anchor.target || anchor.hasAttribute("download")) return;
+    const url = new URL(anchor.href);
+    if (url.origin !== location.origin || !parseDirectLink(url.pathname))
+      return;
+    event.preventDefault();
+    if (busy || (editDoc && !confirm("Discard unsaved page changes?"))) return;
+    navigate(url.pathname);
+  }
+  function closeItem() {
+    setModal(null);
+    if (path.startsWith("/t/")) navigate("/");
+  }
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    setError("");
+    setPublicDoc(undefined);
+    setLinkUnavailable(false);
+    setModal(null);
+    setEditDoc(false);
+    setSelectedDoc(undefined);
+    const link = parseDirectLink(path);
+    if (!link) {
+      setLinkLoading(false);
+      if (path !== "/") setError("This link is not valid.");
+      return;
+    }
+    if (!authed && link.kind === "item") return;
+    setLinkLoading(true);
+    (async () => {
+      if (link.kind === "item") {
+        const item = await api<WorkItem>(
+          `/projects/${link.project}/items/${link.id}`,
+        );
+        if (cancelled) return;
+        setSlug(item.project);
+        // Keep the current work view when opening a card within the project.
+        setTab((current) => (current === "Planning" ? current : "Board"));
+        setEditItem(item);
+        setModal("item");
+      } else {
+        if (authed) {
+          try {
+            const doc = await api<Document & { content: string }>(
+              `/documents/${link.reference}`,
+            );
+            if (cancelled) return;
+            setSlug(doc.project);
+            setTree(doc.tree);
+            setTab("Documentation");
+            setSelectedDoc(doc);
+            return;
+          } catch (e) {
+            if (!(e instanceof ApiError) || ![403, 404].includes(e.status))
+              throw e;
+          }
+        }
+        const doc = await api<PublicDocument>(
+          `/public/documents/${link.reference}`,
+        );
+        if (!cancelled) setPublicDoc(doc);
+      }
+    })()
+      .catch((e) => {
+        if (cancelled) return;
+        setLinkUnavailable(true);
+        setError(
+          e instanceof ApiError && [403, 404].includes(e.status)
+            ? "This page is unavailable or you do not have access."
+            : e.message,
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLinkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, authed, path]);
   async function refresh() {
     const generation = ++loadGeneration.current;
     if (!slug) return;
@@ -206,7 +314,13 @@ function App() {
     }
   }
   useEffect(() => {
-    setSelectedDoc(undefined);
+    setSelectedDoc((current) =>
+      current?.project === slug &&
+      current.tree === tree &&
+      tab === "Documentation"
+        ? current
+        : undefined,
+    );
     setEditDoc(false);
     setItems([]);
     setDocs([]);
@@ -247,6 +361,7 @@ function App() {
     setSelectedDoc(undefined);
     setEditDoc(false);
     setModal(null);
+    navigate("/");
   }
   function newItem() {
     setEditItem(undefined);
@@ -281,6 +396,36 @@ function App() {
         {message}
       </div>
     );
+  if (linkLoading || publicDoc || (linkUnavailable && path.startsWith("/d/")))
+    return (
+      <div className="public-page" onClick={followInternalLink}>
+        <header>
+          <Brand onHome={goHome} />
+          {!authed && (
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => run(login)}
+            >
+              Sign in
+            </button>
+          )}
+        </header>
+        {message}
+        {linkLoading ? (
+          <p>Opening page…</p>
+        ) : (
+          publicDoc && (
+            <article className="document">
+              <p className="eyebrow">Public page</p>
+              <h1>{publicDoc.title}</h1>
+              <p className="muted">Updated {shortDate(publicDoc.updatedAt)}</p>
+              <Content>{publicDoc.content}</Content>
+            </article>
+          )
+        )}
+      </div>
+    );
   if (!authed)
     return (
       <div className="welcome">
@@ -303,7 +448,7 @@ function App() {
       </div>
     );
   return (
-    <div className="shell">
+    <div className="shell" onClick={followInternalLink}>
       <aside className="sidebar">
         <Brand onHome={goHome} />
         <div className="workspace-label">
@@ -318,6 +463,7 @@ function App() {
           className="project-switch"
           value={slug}
           onChange={(e) => {
+            navigate("/");
             setSlug(e.target.value);
             setTree("User");
             setTab("Board");
@@ -364,6 +510,7 @@ function App() {
                 className={tab === t ? "nav-item active" : "nav-item"}
                 key={t}
                 onClick={() => {
+                  navigate("/");
                   setTab(t);
                   setSearch("");
                 }}
@@ -619,8 +766,7 @@ function App() {
                                   e.dataTransfer.setData("text/plain", item.id);
                                 }}
                                 onClick={() => {
-                                  setEditItem(item);
-                                  setModal("item");
+                                  navigate(itemLink(item.id));
                                 }}
                               >
                                 <div className="card-top">
@@ -673,8 +819,7 @@ function App() {
                             className="quiet"
                             onClick={(e) => {
                               e.preventDefault();
-                              setEditItem(initiative);
-                              setModal("item");
+                              navigate(itemLink(initiative.id));
                             }}
                           >
                             Edit
@@ -692,8 +837,7 @@ function App() {
                                   className="quiet"
                                   onClick={(e) => {
                                     e.preventDefault();
-                                    setEditItem(epic);
-                                    setModal("item");
+                                    navigate(itemLink(epic.id));
                                   }}
                                 >
                                   Edit
@@ -706,8 +850,7 @@ function App() {
                                     className="hierarchy-task"
                                     key={task.id}
                                     onClick={() => {
-                                      setEditItem(task);
-                                      setModal("item");
+                                      navigate(itemLink(task.id));
                                     }}
                                   >
                                     <Circle size={14} />
@@ -748,7 +891,10 @@ function App() {
                           className={tree === t ? "selected" : ""}
                           key={t}
                           disabled={busy || editDoc}
-                          onClick={() => setTree(t)}
+                          onClick={() => {
+                            navigate("/");
+                            setTree(t);
+                          }}
                         >
                           <BookOpen size={15} />
                           {t}
@@ -765,14 +911,7 @@ function App() {
                         disabled={busy || editDoc}
                         selected={selectedDoc?.id}
                         select={(doc) =>
-                          run(async () => {
-                            setSelectedDoc(
-                              await api(
-                                `/projects/${slug}/docs/${tree}/${doc.id}`,
-                              ),
-                            );
-                            setEditDoc(false);
-                          })
+                          navigate(documentLink(doc.tree, doc.id))
                         }
                       />
                       {!docs.length && <p className="muted">No pages yet.</p>}
@@ -789,7 +928,11 @@ function App() {
                                 await api(
                                   `/projects/${slug}/docs/${tree}/${selectedDoc.id}`,
                                   "PATCH",
-                                  { title: body.title, content: body.content },
+                                  {
+                                    title: body.title,
+                                    content: body.content,
+                                    public: body.public,
+                                  },
                                   selectedDoc.version,
                                   key,
                                 );
@@ -837,10 +980,93 @@ function App() {
                               </button>
                               <button
                                 className="secondary"
+                                disabled={busy}
                                 onClick={() => setEditDoc(true)}
                               >
                                 Edit page
                               </button>
+                              <button
+                                className="secondary danger"
+                                disabled={busy}
+                                onClick={() => {
+                                  if (
+                                    !confirm(
+                                      `Are you sure you want to delete “${selectedDoc.title}”? Its direct link and public access will stop working.`,
+                                    )
+                                  )
+                                    return;
+                                  run(async () => {
+                                    await api(
+                                      `/projects/${slug}/docs/${tree}/${selectedDoc.id}`,
+                                      "DELETE",
+                                      undefined,
+                                      selectedDoc.version,
+                                    );
+                                    navigate("/");
+                                    setSelectedDoc(undefined);
+                                    await refresh();
+                                  });
+                                }}
+                              >
+                                <Trash2 size={16} /> Delete page
+                              </button>
+                            </div>
+                            <div className="page-sharing">
+                              <a
+                                href={documentLink(
+                                  selectedDoc.tree,
+                                  selectedDoc.id,
+                                )}
+                                onClick={(e) => {
+                                  if (
+                                    !e.ctrlKey &&
+                                    !e.metaKey &&
+                                    !e.shiftKey &&
+                                    !e.altKey
+                                  )
+                                    e.preventDefault();
+                                }}
+                              >
+                                <LinkIcon size={15} /> Direct link
+                              </a>
+                              <label className="checkbox-label">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedDoc.public}
+                                  disabled={busy}
+                                  onChange={(e) => {
+                                    const isPublic = e.target.checked;
+                                    const original = selectedDoc;
+                                    setSelectedDoc({
+                                      ...original,
+                                      public: isPublic,
+                                    });
+                                    run(async () => {
+                                      let updated: Document;
+                                      try {
+                                        updated = await api<Document>(
+                                          `/projects/${slug}/docs/${tree}/${selectedDoc.id}`,
+                                          "PATCH",
+                                          { public: isPublic },
+                                          selectedDoc.version,
+                                        );
+                                      } catch (e) {
+                                        setSelectedDoc(original);
+                                        throw e;
+                                      }
+                                      setSelectedDoc({
+                                        ...updated,
+                                        content: selectedDoc.content,
+                                      });
+                                      await refresh();
+                                    });
+                                  }}
+                                />{" "}
+                                Public
+                              </label>
+                              <small>
+                                Anyone with the link can read a public page.
+                              </small>
                             </div>
                             <h1>{selectedDoc.title}</h1>
                             <p className="byline">
@@ -1003,7 +1229,10 @@ function App() {
                     : "Page history"
           }
           close={() => {
-            if (!busy) setModal(null);
+            if (!busy) {
+              if (modal === "item") closeItem();
+              else setModal(null);
+            }
           }}
         >
           {message}
@@ -1026,6 +1255,18 @@ function App() {
             />
           ) : modal === "item" ? (
             <>
+              {editItem && (
+                <a
+                  className="direct-link"
+                  href={itemLink(editItem.id)}
+                  onClick={(e) => {
+                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey)
+                      e.preventDefault();
+                  }}
+                >
+                  <LinkIcon size={15} /> Direct link
+                </a>
+              )}
               {editItem && (
                 <p className="byline">
                   Updated {shortDate(editItem.updatedAt)} by{" "}
@@ -1052,7 +1293,7 @@ function App() {
                       key,
                     );
                     await refresh();
-                    setModal(null);
+                    closeItem();
                   })
                 }
               />
@@ -1080,10 +1321,8 @@ function App() {
                     key,
                   );
                   await refresh();
-                  setSelectedDoc(
-                    await api(`/projects/${slug}/docs/${tree}/${result.id}`),
-                  );
                   setModal(null);
+                  navigate(documentLink(result.tree, result.id));
                 })
               }
             />
@@ -1384,7 +1623,8 @@ function DocForm({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [content, setContent] = useState(initial?.content ?? "");
   const [parentId, setParent] = useState("");
-  const body = { title, content, parentId: parentId || null };
+  const [isPublic, setPublic] = useState(initial?.public ?? false);
+  const body = { title, content, public: isPublic, parentId: parentId || null };
   const key = useRequestKey(body);
   return (
     <form
@@ -1416,6 +1656,16 @@ function DocForm({
           </select>
         </label>
       )}
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={isPublic}
+          disabled={busy}
+          onChange={(e) => setPublic(e.target.checked)}
+        />{" "}
+        Public
+      </label>
+      <p className="muted">Anyone with the link can read a public page.</p>
       <MarkdownField
         label="Page content"
         value={content}

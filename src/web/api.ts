@@ -1,4 +1,5 @@
 import type { Page } from "../shared/model.js";
+import { parseDirectLink } from "../shared/links.js";
 export interface Config {
   local?: boolean;
   clientId?: string;
@@ -16,7 +17,7 @@ export async function initialize() {
     sessionStorage.removeItem("dnt.oauth");
     history.replaceState({}, "", "/");
     if (!expected) throw new Error("Sign-in expired. Please try again.");
-    const { state, verifier, createdAt } = JSON.parse(expected);
+    const { state, verifier, createdAt, returnTo } = JSON.parse(expected);
     if (query.get("state") !== state || Date.now() - createdAt > 600_000)
       throw new Error("Invalid or expired sign-in response");
     if (query.has("error"))
@@ -39,6 +40,8 @@ export async function initialize() {
       throw new Error("Could not complete sign-in. Please try again.");
     const tokens = await result.json();
     token = tokens.access_token;
+    if (typeof returnTo === "string" && parseDirectLink(returnTo))
+      history.replaceState({}, "", returnTo);
     // Tokens stay in memory. Reloading uses the existing Cognito login session.
   }
   return { config, authenticated: !!config.local || !!token };
@@ -60,7 +63,12 @@ export async function login() {
   );
   sessionStorage.setItem(
     "dnt.oauth",
-    JSON.stringify({ state, verifier, createdAt: Date.now() }),
+    JSON.stringify({
+      state,
+      verifier,
+      createdAt: Date.now(),
+      returnTo: location.pathname,
+    }),
   );
   const query = new URLSearchParams({
     client_id: config.clientId,
@@ -82,6 +90,14 @@ export function logout() {
       `${config.authDomain}/logout?${new URLSearchParams({ client_id: config.clientId!, logout_uri: `${location.origin}/` })}`,
     );
 }
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 export async function api<T>(
   path: string,
   method = "GET",
@@ -96,13 +112,15 @@ export async function api<T>(
     headers["idempotency-key"] = key ?? crypto.randomUUID();
   if (version !== undefined) headers["if-match"] = `"${version}"`;
   const response = await fetch(`/api/v1${path}`, {
+    cache: "no-store",
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = response.status === 204 ? undefined : await response.json();
   if (!response.ok)
-    throw new Error(
+    throw new ApiError(
+      response.status,
       response.status === 401
         ? "Your session expired. Sign out and sign in again."
         : `${data.error ?? data.message ?? `Request failed (${response.status})`}${data.details?.length ? ": " + data.details.map((d: any) => d.message).join("; ") : ""}`,

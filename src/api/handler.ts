@@ -3,6 +3,7 @@ import { DynamoStore, S3Blobs } from "./aws-store.js";
 import { Service, HttpError } from "./service.js";
 import { AccountNames } from "./names.js";
 import { authenticate } from "./auth.js";
+import { isPublicDocumentRequest } from "../shared/links.js";
 const names = new AccountNames(process.env.COGNITO_POOL_ID!);
 const service = new Service(
   new DynamoStore(process.env.TABLE_NAME!),
@@ -17,11 +18,16 @@ export async function handler(event: any) {
     "x-content-type-options": "nosniff",
   };
   try {
-    const principal = authenticate(event, {
-      issuer: process.env.COGNITO_ISSUER!,
-      clientId: process.env.COGNITO_CLIENT_ID!,
-      agentRoles: JSON.parse(process.env.AGENT_ROLES ?? "[]"),
-    });
+    const principal = isPublicDocumentRequest(
+      event.requestContext.http.method,
+      event.rawPath,
+    )
+      ? ""
+      : authenticate(event, {
+          issuer: process.env.COGNITO_ISSUER!,
+          clientId: process.env.COGNITO_CLIENT_ID!,
+          agentRoles: JSON.parse(process.env.AGENT_ROLES ?? "[]"),
+        });
     const raw = event.isBase64Encoded
       ? Buffer.from(event.body ?? "", "base64").toString("utf8")
       : (event.body ?? "");

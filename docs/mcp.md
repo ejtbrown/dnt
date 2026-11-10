@@ -28,14 +28,15 @@ Example prompts:
 | `get_identity`, `get_profile` | Current principal, project creation eligibility, stable account profile |
 | `list_projects`, `get_project`, `create_project`, `delete_project` | Project discovery, creation, and soft deletion |
 | `list_work_items`, `get_work_item`, `create_work_item`, `update_work_item` | Initiatives, Epics, Tasks, hierarchy, assignment, descriptions, all five task states |
-| `list_documents`, `get_document`, `create_document`, `update_document` | All three nested documentation trees and Markdown content |
+| `list_documents`, `get_document`, `create_document`, `update_document`, `delete_document` | All three nested documentation trees, Markdown content, opt-in public sharing, and page deletion |
+| `resolve_document_link`, `get_public_document` | Resolve direct document links with project permissions, or read the public projection of a shared page |
 | `list_document_revisions`, `get_document_revision`, `compare_document_revisions`, `restore_document_revision` | Revision history, historical reads, arbitrary title/Markdown comparisons, restoration as a new revision |
 | `list_work_item_comments`, `create_work_item_comment`, `update_work_item_comment`, `list_work_item_comment_revisions` | Markdown comments on all work item kinds, edits, immutable history, author and editor attribution |
 | `list_members`, `set_member`, `remove_member` | Project role grants, role changes, and revocation |
 | `list_project_users`, `get_project_groups`, `list_project_group_users`, `reconcile_project_groups` | Search existing Cognito accounts, inspect group membership and synchronization, retry provisioning/cleanup |
 | `list_audit_events` | Mutation audit history |
 
-There are 30 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, full-text search, hard deletion of projects/items/documents, or identity invitations; MCP does not imply those capabilities.
+There are 33 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, full-text search, hard deletion of projects/items, or identity invitations; MCP does not imply those capabilities.
 
 Creates require an `idempotencyKey`; reuse the same key and identical input only when retrying the same create. Updates and removals require `expectedVersion` from a recent read. Existing membership changes also require that version. Lists accept `limit` (default 25, maximum 100; Cognito user listings maximum 60) and `cursor`; continue using `nextCursor` until absent. Large results may require a smaller page size. Successful product results are returned both as JSON text and under `structuredContent.result`. The profile tool returns its declared top-level profile object. Tool failures have `isError: true`; permission and conflict errors preserve the API status in their text.
 
@@ -109,3 +110,11 @@ Use `list_projects` with `includeDeleted: true` to discover deleted projects you
 ## Global administration
 
 `create_project` requires current membership in the shared Cognito `dnt-admin` group. `delete_project` requires that membership plus Administrator access to the target project. `get_identity` exposes `isDntAdmin` and `canCreateProject` for discovery. These checks apply to every MCP/API call, including creation retries, and fail closed if Cognito is unavailable. They do not trust token group claims. Existing connections reflect group removal without a token refresh; IAM principals cannot create or delete projects. Project group synchronization never changes the global `dnt-admin` group. Identity operators manage this global membership in Cognito.
+
+## Direct links and public pages
+
+Work item and document responses include `url`. Work items use `/t/<project>-<ordinal>`; documents use `/d/<user|maintainer|admin>-<UUID>`. Pass the portion after `/d/` as `reference` to `resolve_document_link` to read the page with normal tree permissions, or `get_public_document` to read only its current public title and Markdown. There is no public listing or history. The public REST read is GET `/api/v1/public/documents/{reference}`, without authentication; MCP tool execution still uses account linking.
+
+Documents default to `public: false`. Set `input.public` on `create_document`, or `patch.public` on `update_document`, to publish or revoke. Publication changes are versioned and attributed like edits. Restoring content preserves the current publication choice. Public access never grants edit or history access. Deleted pages, private pages, and pages in deleted projects return the same public 404 response.
+
+`delete_document` requires the current `expectedVersion` and the same tree role as editing. Delete children first; deleting a parent with children fails without changing it. Deletion removes the current page and direct-link lookup atomically; immutable revisions remain private and unavailable through the product. Supply `agentName` on publication changes and deletion as on every write.
