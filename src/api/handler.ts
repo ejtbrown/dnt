@@ -7,7 +7,6 @@ const names = new AccountNames(process.env.COGNITO_POOL_ID!);
 const service = new Service(
   new DynamoStore(process.env.TABLE_NAME!),
   new S3Blobs(process.env.CONTENT_BUCKET!),
-  JSON.parse(process.env.PROJECT_CREATORS ?? "[]"),
   new CognitoDirectory(process.env.COGNITO_POOL_ID!),
   process.env.PUBLIC_ORIGIN!,
 );

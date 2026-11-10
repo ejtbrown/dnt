@@ -1,3 +1,4 @@
+import { MemoryDirectory } from "../src/groups/memory.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -10,7 +11,7 @@ const maintainer = "cognito:maintainer";
 async function setup() {
   const db = new MemoryStore();
   const blobs = new MemoryBlobs();
-  const service = new Service(db, blobs, [admin]);
+  const service = new Service(db, blobs, new MemoryDirectory(true, [admin]));
   const request = (
     method: string,
     path: string,

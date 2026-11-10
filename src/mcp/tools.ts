@@ -93,7 +93,7 @@ export const operations: Operation[] = [
     operationId: "deleteProject",
     method: "DELETE",
     description:
-      "Delete a project and its three managed Cognito groups. Administrator required. Read get_project and pass expectedVersion. Access is revoked immediately; records are retained for recovery and the slug remains reserved. Poll get_project_groups until deleted.",
+      "Delete a project and its three managed Cognito groups. Current dnt-admin Cognito group membership AND project Administrator permission are required. Read get_project and pass expectedVersion. Access is revoked immediately; records are retained for recovery and the slug remains reserved. Poll get_project_groups until deleted.",
     schema: z.object({ project, expectedVersion }).strict(),
     path: projectPath,
   },
@@ -181,7 +181,7 @@ export const operations: Operation[] = [
     operationId: "createProject",
     method: "POST",
     description:
-      "Use this to create a project with three documentation trees. Restricted to configured project creators; the creator becomes Administrator.",
+      "Use this to create a project with three documentation trees. Current membership in the dnt-admin Cognito group is required; the creator becomes project Administrator. IAM identities cannot create projects.",
     schema: z.object({ input: projectInput, idempotencyKey }).strict(),
     path: () => "/projects",
     body: (a) => a.input,

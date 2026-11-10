@@ -55,14 +55,8 @@ export function fixture() {
       },
     },
   );
-  const directory = new MemoryDirectory(true);
-  const service = new Service(
-    serviceDb,
-    new MemoryBlobs(),
-    [admin],
-    directory,
-    origin,
-  );
+  const directory = new MemoryDirectory(true, [admin]);
+  const service = new Service(serviceDb, new MemoryBlobs(), directory, origin);
   return {
     ...fixture,
     broker,

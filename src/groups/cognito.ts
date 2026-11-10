@@ -1,6 +1,7 @@
 import {
   CognitoIdentityProviderClient,
   AdminGetUserCommand,
+  paginateAdminListGroupsForUser,
   ListUsersCommand,
   GetGroupCommand,
   CreateGroupCommand,
@@ -10,7 +11,11 @@ import {
   AdminRemoveUserFromGroupCommand,
   type UserType,
 } from "@aws-sdk/client-cognito-identity-provider";
-import type { Directory, DirectoryUser } from "./model.js";
+import {
+  administrationGroup,
+  type Directory,
+  type DirectoryUser,
+} from "./model.js";
 const code = (error: unknown) =>
   error instanceof Error ? error.name : "UnknownError";
 const quoted = (value: string) =>
@@ -75,6 +80,26 @@ export class CognitoDirectory implements Directory {
     );
     const result = directoryUser({ ...user, Attributes: user.UserAttributes });
     return result?.principal === principal ? result : undefined;
+  }
+  async isDntAdmin(principal: string) {
+    if (!principal.startsWith("cognito:")) return false;
+    try {
+      const user = await this.resolve(principal);
+      if (!user?.enabled) return false;
+      for await (const page of paginateAdminListGroupsForUser(
+        { client: this.client, pageSize: 60, stopOnSameToken: true },
+        { UserPoolId: this.poolId, Username: user.username },
+        this.options(),
+      ))
+        if (
+          page.Groups?.some((group) => group.GroupName === administrationGroup)
+        )
+          return true;
+      return false;
+    } catch (error) {
+      if (code(error) === "UserNotFoundException") return false;
+      throw error;
+    }
   }
   async users(search: string, limit: number, cursor?: string) {
     const result = await this.client.send(

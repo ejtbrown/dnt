@@ -7,7 +7,11 @@ import { DynamoStore } from "../src/api/aws-store.js";
 import { MemoryBlobs, type Store } from "../src/api/store.js";
 import { Service } from "../src/api/service.js";
 import { CognitoDirectory } from "../src/groups/cognito.js";
-import { projectGroups, type GroupSync } from "../src/groups/model.js";
+import {
+  administrationGroup,
+  projectGroups,
+  type GroupSync,
+} from "../src/groups/model.js";
 const config = loadConfig();
 verifyAccount(config.account);
 process.env.AWS_REGION = config.region;
@@ -24,11 +28,13 @@ const table = aws([
 const db = new DynamoStore(table);
 const directory = new CognitoDirectory(config.cognitoPoolId);
 const slug = `GS${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
-const actor = `iam:arn:aws:iam::${config.account}:role/dnt-group-smoke-${slug}`;
-const user = await directory.resolve(
-  config.projectCreators.find((p) => p.startsWith("cognito:"))!,
+const iamActor = `iam:arn:aws:iam::${config.account}:role/dnt-group-smoke-${slug}`;
+const user = (await directory.groupUsers(administrationGroup, 60)).items.find(
+  (user) => user.enabled,
 );
-assert.ok(user, "Configured operator must exist in Cognito");
+assert.ok(user, "An enabled dnt-admin member is required for the smoke test");
+assert.equal(await directory.isDntAdmin(user.principal), true);
+const actor = user.principal;
 assert.equal(await db.get(`PROJECT#${slug}`, "META"), undefined);
 for (const group of projectGroups(slug))
   assert.equal(await directory.group(group.name), undefined);
@@ -48,16 +54,21 @@ const store: Store = {
 const service = new Service(
   store,
   new MemoryBlobs(),
-  [actor],
   directory,
   `https://${config.domain}`,
 );
-const call = (method: string, path: string, body?: unknown, version?: number) =>
+const call = (
+  method: string,
+  path: string,
+  body?: unknown,
+  version?: number,
+  principal = actor,
+) =>
   service.handle({
     method,
     path: `/api/v1${path}`,
     body,
-    principal: actor,
+    principal,
     userName: "Group Smoke Test",
     agentName: "Deployment Verification",
     headers: {
@@ -97,59 +108,48 @@ try {
     ),
   );
   assert.equal(
-    (
-      await call("POST", `/projects/${slug}/members`, {
-        principal: user.principal,
-        role: "User",
-      })
-    ).status,
-    201,
-  );
-  await waitFor("ready");
-  assert.equal(
-    (await directory.groupUsers(`dnt-proj-${slug}-viewer`, 60)).items[0]
+    (await directory.groupUsers(`dnt-proj-${slug}-admin`, 60)).items[0]
       ?.principal,
-    user.principal,
+    actor,
   );
   assert.equal(
     (
       await call(
         "POST",
-        `/projects/${slug}/members`,
-        { principal: user.principal, role: "Maintainer" },
-        1,
+        "/projects",
+        { slug: `${slug.slice(0, 9)}X`, name: "Denied IAM create" },
+        undefined,
+        iamActor,
       )
     ).status,
-    200,
-  );
-  await waitFor("ready");
-  assert.equal(
-    (await directory.groupUsers(`dnt-proj-${slug}-viewer`, 60)).items.length,
-    0,
+    403,
   );
   assert.equal(
-    (await directory.groupUsers(`dnt-proj-${slug}-maintainer`, 60)).items[0]
-      ?.principal,
-    user.principal,
+    (
+      await call("POST", `/projects/${slug}/members`, {
+        principal: iamActor,
+        role: "Administrator",
+      })
+    ).status,
+    201,
   );
+  const current = (await call("GET", `/projects/${slug}`)).body;
   assert.equal(
     (
       await call(
         "DELETE",
-        `/projects/${slug}/members/${user.principal}`,
+        `/projects/${slug}`,
         undefined,
-        2,
+        current.version,
+        iamActor,
       )
     ).status,
-    204,
+    403,
   );
-  await waitFor("ready");
-  assert.equal(
-    (await directory.groupUsers(`dnt-proj-${slug}-maintainer`, 60)).items
-      .length,
-    0,
+  assert.equal((await call("GET", `/projects/${slug}`)).status, 200);
+  console.log(
+    `${slug}: dnt-admin creator allowed; IAM creation/deletion denied even with project Administrator role`,
   );
-  console.log(`${slug}: grants, role changes, and removals synchronized`);
 } finally {
   if (created) {
     try {
@@ -171,7 +171,11 @@ try {
       for (const group of projectGroups(slug))
         assert.equal(await directory.group(group.name), undefined);
       assert.equal((await call("GET", `/projects/${slug}`)).status, 404);
-      assert.equal((await call("GET", "/projects")).body.items.length, 0);
+      assert.ok(
+        !(await call("GET", "/projects")).body.items.some(
+          (member: any) => member.project === slug,
+        ),
+      );
       for (const key of records.values())
         await db.client.send(
           new DeleteCommand({ TableName: db.table, Key: key }),

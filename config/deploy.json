@@ -9,9 +9,6 @@
   "cognitoPoolId": "us-east-2_yRwS7loCA",
   "cognitoClientId": "1at2j6h43a2vcjrdo7qb7me03o",
   "authDomain": "https://auth.ejtbrown.com",
-  "projectCreators": [
-    "cognito:71cb9560-70f1-705f-1601-c326c5d5eafb"
-  ],
   "agentRoles": [],
   "repositoryOwnerId": "9349498",
   "repositoryId": "1451000902",

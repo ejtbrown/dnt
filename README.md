@@ -51,7 +51,7 @@ Roles inherit lower roles. The first version interprets documentation trees as v
 | Read/write Administrator documentation | No | No | Yes |
 | Manage membership / read audit records | No | No | Yes |
 
-Creating projects is restricted to the `projectCreators` deployment setting. Creation grants the creator Administrator on that project; it does not give them access to all other projects. The initial creator is the owner’s invited Cognito account. Add other human subjects or agent roles deliberately. The final project Administrator cannot be removed or demoted.
+Creating and deleting projects requires current membership in the shared Cognito `dnt-admin` group. Deletion also requires Administrator access to the target project. Creation grants the creator Administrator on that project; the global group does not grant access to other projects. Identity operators manage `dnt-admin` membership in Cognito. IAM principals cannot create or delete projects. The final project Administrator cannot be removed or demoted.
 
 ## API examples
 
