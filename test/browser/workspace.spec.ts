@@ -104,7 +104,7 @@ test("a team can create a project, plan work, move tasks, and revise documentati
     .click();
   await page.getByLabel("Page title").fill("Getting started");
   await page
-    .getByLabel("Page content")
+    .getByRole("textbox", { name: "Page content", exact: true })
     .fill(
       "# Welcome\n\nA shared home for **docs and tasks**.\n\n- Start with an initiative\n- Break it into epics\n- Make progress with tasks",
     );
@@ -114,29 +114,45 @@ test("a team can create a project, plan work, move tasks, and revise documentati
   ).toBeVisible();
   await page.getByRole("button", { name: "Edit page", exact: true }).click();
   await page
-    .getByLabel("Page content")
+    .getByRole("textbox", { name: "Page content", exact: true })
     .fill("# Updated guide\n\nYour second revision.");
   await page.getByRole("button", { name: "Save page", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Updated guide" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "History", exact: true }).click();
-  await expect(page.getByText("Revision 2", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Revision", { exact: true })).toHaveValue("2");
+  await page.getByLabel("Revision", { exact: true }).selectOption("1");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Welcome", exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Open in editor", exact: true })
     .last()
     .click();
-  await expect(page.getByLabel("Page content")).toHaveValue(/# Welcome/);
+  await expect(
+    page.getByRole("textbox", { name: "Page content", exact: true }),
+  ).toContainText("# Welcome");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Updated guide" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "History", exact: true }).click();
+  await page.getByLabel("Revision", { exact: true }).selectOption("1");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Welcome", exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Open in editor", exact: true })
     .last()
     .click();
-  await expect(page.getByLabel("Page content")).toHaveValue(/# Welcome/);
+  await expect(
+    page.getByRole("textbox", { name: "Page content", exact: true }),
+  ).toContainText("# Welcome");
 
   await page.getByRole("button", { name: "Save page", exact: true }).click();
   await expect(

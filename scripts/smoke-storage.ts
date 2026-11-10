@@ -223,6 +223,27 @@ try {
         .items[0].attribution.agentName,
       "Storage Agent",
     );
+    const commentArgs = {
+      project: "ROOT",
+      id: task.body.id,
+      commentId: comment.id,
+    };
+    const edited = await call("update_work_item_comment", {
+      ...commentArgs,
+      input: { content: "    Markdown code  \nnext\n" },
+      expectedVersion: 1,
+      agentName: "Comment Editor",
+    });
+    assert.equal(edited.content, "    Markdown code  \nnext\n");
+    const commentRevisions = (
+      await call("list_work_item_comment_revisions", commentArgs)
+    ).items;
+    assert.equal(commentRevisions.length, 2);
+    assert.equal(commentRevisions[0].content, "Isolated attributed comment");
+    assert.equal(
+      commentRevisions[1].editAttribution.agentName,
+      "Comment Editor",
+    );
     const pageArgs = {
       project: "ROOT",
       tree: "User",
@@ -249,6 +270,20 @@ try {
       (await call("get_document", pageArgs)).attribution.agentName,
       "Restorer",
     );
+    const comparison = await call("compare_document_revisions", {
+      ...pageArgs,
+      fromRevision: 1,
+      toRevision: 3,
+    });
+    assert.equal(comparison.from.version, 1);
+    assert.equal(comparison.to.version, 3);
+    assert.equal(
+      comparison.content.parts
+        .filter((p: any) => p.type !== "removed")
+        .map((p: any) => p.text)
+        .join(""),
+      "# Attributed revision",
+    );
     const audit = (await call("list_audit_events", { project: "ROOT" })).items;
     assert.ok(
       audit.some(
@@ -258,7 +293,7 @@ try {
       ),
     );
     console.log(
-      "AWS MCP attribution smoke passed: comments, document edits, restoration, immutable history, and audit.",
+      "AWS MCP attribution smoke passed: comment edits/history, document comparison, restoration, immutable history, and audit.",
     );
   } finally {
     await client.close();

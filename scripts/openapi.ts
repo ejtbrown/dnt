@@ -97,15 +97,50 @@ const schemas: Record<string, unknown> = {
     },
     ["principal", "userName"],
   ),
-  TaskComment: object({
-    id: { type: "string", format: "uuid" },
-    project: string,
-    taskId: string,
-    content: string,
-    version,
-    createdAt: date,
-    createdBy: string,
-    attribution: ref("Attribution"),
+  TaskComment: object(
+    {
+      id: { type: "string", format: "uuid" },
+      project: string,
+      taskId: {
+        ...string,
+        description: "Legacy field containing the Initiative, Epic or Task ID",
+      },
+      itemId: string,
+      updatedAt: date,
+      updatedBy: string,
+      editAttribution: ref("Attribution"),
+      content: string,
+      version,
+      createdAt: date,
+      createdBy: string,
+      attribution: ref("Attribution"),
+    },
+    [
+      "id",
+      "project",
+      "taskId",
+      "content",
+      "version",
+      "createdAt",
+      "createdBy",
+      "attribution",
+    ],
+  ),
+  TextDiff: object({
+    simplified: { type: "boolean" },
+    parts: {
+      type: "array",
+      items: object({
+        type: { enum: ["unchanged", "added", "removed"] },
+        text: string,
+      }),
+    },
+  }),
+  DocumentComparison: object({
+    from: ref("Document"),
+    to: ref("Document"),
+    title: ref("TextDiff"),
+    content: ref("TextDiff"),
   }),
   Project: project,
   DirectoryUser: object(
@@ -254,6 +289,15 @@ function route(
         description: "Pass nextCursor unchanged from the previous page.",
       },
     );
+  if (operationId === "compareDocumentRevisions")
+    parameters.push(
+      ...["from", "to"].map((name) => ({
+        name,
+        in: "query",
+        required: true,
+        schema: { type: "integer", minimum: 1, maximum: 999999999999 },
+      })),
+    );
   if (operationId === "listProjectUsers")
     parameters.push({
       name: "search",
@@ -392,7 +436,7 @@ route(
   "/projects/{project}/items/{id}/comments",
   "get",
   "listTaskComments",
-  "List task comments; project membership required",
+  "List Initiative, Epic or Task comments; project membership required",
   "TaskCommentPage",
   undefined,
   { paginated: true },
@@ -401,9 +445,34 @@ route(
   "/projects/{project}/items/{id}/comments",
   "post",
   "createTaskComment",
-  "Add an immutable Markdown comment to a task; project membership required",
+  "Add a Markdown comment to any work item; project membership required",
   "TaskComment",
   "CommentInput",
+);
+route(
+  "/projects/{project}/items/{id}/comments/{commentId}",
+  "patch",
+  "updateWorkItemComment",
+  "Edit a comment as its author or a project Administrator, retaining immutable history",
+  "TaskComment",
+  "CommentInput",
+  { version: true },
+);
+route(
+  "/projects/{project}/items/{id}/comments/{commentId}/revisions",
+  "get",
+  "listWorkItemCommentRevisions",
+  "List immutable comment revisions including Markdown, oldest first; project membership required",
+  "TaskCommentPage",
+  undefined,
+  { paginated: true },
+);
+route(
+  "/projects/{project}/docs/{tree}/{id}/compare",
+  "get",
+  "compareDocumentRevisions",
+  "Compare titles and Markdown from any two revisions; current tree permissions apply",
+  "DocumentComparison",
 );
 route(
   "/projects/{project}/docs/{tree}",

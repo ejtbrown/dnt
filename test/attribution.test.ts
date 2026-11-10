@@ -218,7 +218,7 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
   }
 });
 
-test("comments are scoped to tasks and membership, paginated, immutable, and HTTP bodies cannot supply attribution", async () => {
+test("comments are scoped to work items and membership, paginated, versioned, and HTTP bodies cannot supply attribution", async () => {
   const f = fixture();
   const request = (
     method: string,
@@ -274,7 +274,7 @@ test("comments are scoped to tasks and membership, paginated, immutable, and HTT
         content: "Hello",
       })
     ).status,
-    400,
+    201,
   );
   assert.equal(
     (await request("POST", path, { content: "Hello" }, member)).status,
@@ -312,9 +312,9 @@ test("comments are scoped to tasks and membership, paginated, immutable, and HTT
   assert.equal(
     (await request("PATCH", `${path}/${one.body.id}`, { content: "Replaced" }))
       .status,
-    404,
+    428,
   );
-  assert.equal((await request("DELETE", `${path}/${one.body.id}`)).status, 404);
+  assert.equal((await request("DELETE", `${path}/${one.body.id}`)).status, 405);
 });
 
 test("display names come from the matching Cognito account, with bounded cached lookup and safe fallbacks", async () => {

@@ -22,13 +22,13 @@ import {
   Code2,
   ArrowLeft,
 } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Content, MarkdownField } from "./markdown.js";
+import { DocumentHistory } from "./document-history.js";
+import { WorkItemComments } from "./comments.js";
 import {
   states,
   attributionLabel,
   type Attribution,
-  type TaskComment,
   type AuditEvent,
   roles,
   kinds,
@@ -65,21 +65,14 @@ function Byline({
     </span>
   );
 }
-function Content({ children }: { children: string }) {
-  return (
-    <div className="markdown">
-      <Markdown remarkPlugins={[remarkGfm]} skipHtml>
-        {children}
-      </Markdown>
-    </div>
-  );
-}
 function Dialog({
   title,
   children,
   close,
+  wide = false,
 }: {
   title: string;
+  wide?: boolean;
   children: React.ReactNode;
   close: () => void;
 }) {
@@ -88,7 +81,11 @@ function Dialog({
     ref.current?.showModal();
   }, []);
   return (
-    <dialog ref={ref} onCancel={close}>
+    <dialog
+      ref={ref}
+      onCancel={close}
+      className={wide ? "wide-dialog" : undefined}
+    >
       <div className="dialog-title">
         <h2>{title}</h2>
         <button className="icon" aria-label="Close dialog" onClick={close}>
@@ -952,6 +949,7 @@ function App() {
       )}
       {modal && (
         <Dialog
+          wide={modal === "history"}
           title={
             modal === "project"
               ? "Create a project"
@@ -1019,11 +1017,13 @@ function App() {
                   })
                 }
               />
-              {editItem?.kind === "Task" && (
-                <TaskComments
+              {editItem && (
+                <WorkItemComments
                   key={`${slug}/${editItem.id}`}
                   project={slug}
-                  taskId={editItem.id}
+                  itemId={editItem.id}
+                  principal={me?.principal ?? ""}
+                  administrator={role === "Administrator"}
                 />
               )}
             </>
@@ -1067,38 +1067,26 @@ function App() {
               }
             />
           ) : (
-            <div className="revision-list">
-              {[...revisions].reverse().map((rev) => (
-                <div key={rev.version}>
-                  <strong>Revision {rev.version}</strong>
-                  <span>{shortDate(rev.updatedAt)}</span>
-                  <Byline
-                    attribution={rev.attribution}
-                    principal={rev.updatedBy}
-                  />
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() =>
-                      run(async () => {
-                        const old = await api<Document & { content: string }>(
-                          `/projects/${slug}/docs/${tree}/${rev.id}/revisions/${rev.version}`,
-                        );
-                        setSelectedDoc({
-                          ...selectedDoc!,
-                          content: old.content,
-                          title: old.title,
-                        });
-                        setEditDoc(true);
-                        setModal(null);
-                      })
-                    }
-                  >
-                    Open in editor
-                  </button>
-                </div>
-              ))}
-            </div>
+            <DocumentHistory
+              project={slug}
+              tree={tree}
+              revisions={revisions}
+              busy={busy}
+              restore={(rev) =>
+                run(async () => {
+                  const old = await api<Document & { content: string }>(
+                    `/projects/${slug}/docs/${tree}/${rev.id}/revisions/${rev.version}`,
+                  );
+                  setSelectedDoc({
+                    ...selectedDoc!,
+                    content: old.content,
+                    title: old.title,
+                  });
+                  setEditDoc(true);
+                  setModal(null);
+                })
+              }
+            />
           )}
         </Dialog>
       )}
@@ -1198,6 +1186,7 @@ function ItemForm({
   );
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [editDescription, setEditDescription] = useState(!initial);
   const [parentId, setParent] = useState(initial?.parentId ?? "");
   const [state, setState] = useState<State>(initial?.state ?? "Concept");
   const [assignee, setAssignee] = useState(initial?.assignee ?? "");
@@ -1291,16 +1280,33 @@ function ItemForm({
           placeholder="What needs to happen?"
         />
       </label>
-      <label>
-        Description
-        <textarea
-          className="description-input"
-          value={description}
-          maxLength={20000}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Context, acceptance criteria, and helpful links…"
-        />
-      </label>
+      <section aria-label="Work item description">
+        {editDescription && !readOnly ? (
+          <MarkdownField
+            label="Description"
+            value={description}
+            onChange={setDescription}
+            maxLength={20000}
+            disabled={busy}
+          />
+        ) : (
+          <>
+            <div className="editor-toolbar">
+              <span>Description</span>
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="quiet"
+                  onClick={() => setEditDescription(true)}
+                >
+                  Edit description
+                </button>
+              )}
+            </div>
+            <Content>{description || "*No description yet.*"}</Content>
+          </>
+        )}
+      </section>
       <label>
         Assignee identity (optional)
         <input
@@ -1339,7 +1345,6 @@ function DocForm({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [content, setContent] = useState(initial?.content ?? "");
   const [parentId, setParent] = useState("");
-  const [preview, setPreview] = useState(false);
   const body = { title, content, parentId: parentId || null };
   const key = useRequestKey(body);
   return (
@@ -1372,28 +1377,13 @@ function DocForm({
           </select>
         </label>
       )}
-      <div className="editor-toolbar">
-        <span>Markdown</span>
-        <button
-          type="button"
-          className="quiet"
-          onClick={() => setPreview(!preview)}
-        >
-          {preview ? "Edit" : "Preview"}
-        </button>
-      </div>
-      {preview ? (
-        <Content>{content || "*Nothing to preview yet.*"}</Content>
-      ) : (
-        <textarea
-          aria-label="Page content"
-          className="markdown-input"
-          value={content}
-          maxLength={100000}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Write something worth sharing…"
-        />
-      )}
+      <MarkdownField
+        label="Page content"
+        value={content}
+        onChange={setContent}
+        maxLength={100000}
+        disabled={busy}
+      />
       <div className="form-actions">
         {cancel && (
           <button type="button" className="secondary" onClick={cancel}>
@@ -1503,100 +1493,6 @@ function DocTree({
 }
 createRoot(document.getElementById("root")!).render(<App />);
 
-function TaskComments({
-  project,
-  taskId,
-}: {
-  project: string;
-  taskId: string;
-}) {
-  const path = `/projects/${project}/items/${taskId}/comments`;
-  const [comments, setComments] = useState<TaskComment[]>([]);
-  const [content, setContent] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const body = { content };
-  const key = useRequestKey(body);
-  useEffect(() => {
-    let active = true;
-    all<TaskComment>(path)
-      .then((items) => {
-        if (active) setComments(items);
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [path]);
-  return (
-    <section className="task-comments" aria-label="Task comments">
-      <h3>Comments</h3>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {loading ? (
-        <p>Loading comments…</p>
-      ) : comments.length === 0 ? (
-        <p className="muted">No comments yet.</p>
-      ) : (
-        comments.map((comment) => (
-          <article className="task-comment" key={comment.id}>
-            <div className="byline">
-              <Byline
-                attribution={comment.attribution}
-                principal={comment.createdBy}
-              />{" "}
-              · {shortDate(comment.createdAt)}
-            </div>
-            <Content>{comment.content}</Content>
-          </article>
-        ))
-      )}
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setSaving(true);
-          setError("");
-          try {
-            await api(path, "POST", body, undefined, key);
-            setComments(await all<TaskComment>(path));
-            setContent("");
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setSaving(false);
-          }
-        }}
-      >
-        <label>
-          Comment
-          <textarea
-            value={content}
-            maxLength={20000}
-            onChange={(e) => setContent(e.target.value)}
-            required
-            disabled={saving}
-            placeholder="Add context or an update…"
-          />
-        </label>
-        <button
-          className="secondary"
-          disabled={loading || saving || !content.trim()}
-        >
-          {saving ? "Posting…" : "Post comment"}
-        </button>
-      </form>
-    </section>
-  );
-}
 function ProjectActivity({ project }: { project: string }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [error, setError] = useState("");
@@ -1625,7 +1521,8 @@ function ProjectActivity({ project }: { project: string }) {
     "document.updated": "Updated document",
     "membership.set": "Set membership",
     "membership.removed": "Removed membership",
-    "comment.created": "Commented on task",
+    "comment.updated": "Edited comment",
+    "comment.created": "Commented on work item",
   };
   return (
     <section className="activity-list" aria-label="Project activity">

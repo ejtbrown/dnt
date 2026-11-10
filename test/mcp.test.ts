@@ -48,7 +48,7 @@ test("official MCP client initializes stateless HTTP, discovers complete typed t
     client = await connect(f);
   try {
     const tools = (await client.listTools()).tools;
-    assert.equal(tools.length, 27);
+    assert.equal(tools.length, 32);
     const openapi = JSON.parse(readFileSync("public/openapi.json", "utf8"));
     const expected = Object.values(openapi.paths)
       .flatMap((methods: any) =>
@@ -145,7 +145,7 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
       idempotencyKey: randomUUID(),
     };
     const task = await call("create_work_item", create);
-    await call("create_task_comment", {
+    const comment = await call("create_work_item_comment", {
       project: "ROOT",
       id: task.id,
       input: { content: "Implementation update" },
@@ -153,10 +153,23 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
       agentName: "Planning Agent",
     });
     assert.equal(
-      (await call("list_task_comments", { project: "ROOT", id: task.id })).items
-        .length,
+      (await call("list_work_item_comments", { project: "ROOT", id: task.id }))
+        .items.length,
       1,
     );
+    const commentArgs = { project: "ROOT", id: task.id, commentId: comment.id };
+    await call("update_work_item_comment", {
+      ...commentArgs,
+      input: { content: "**Edited**" },
+      expectedVersion: 1,
+      agentName: "Editor",
+    });
+    const commentHistory = await call(
+      "list_work_item_comment_revisions",
+      commentArgs,
+    );
+    assert.equal(commentHistory.items.length, 2);
+    assert.equal(commentHistory.items[1].editAttribution.agentName, "Editor");
     assert.equal(task.id, "ROOT-3");
     assert.equal(task.state, "Concept");
     assert.deepEqual(await call("create_work_item", create), task);
@@ -253,6 +266,15 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
       assert.equal(
         (await call("get_document_revision", { ...args, revision: 1 })).content,
         "# First",
+      );
+      const diff = await call("compare_document_revisions", {
+        ...args,
+        fromRevision: 1,
+        toRevision: 2,
+      });
+      assert.equal(
+        diff.content.parts.find((p: any) => p.type === "added").text,
+        "# Second",
       );
       await call("restore_document_revision", {
         ...args,

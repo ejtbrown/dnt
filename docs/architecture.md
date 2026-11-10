@@ -35,6 +35,9 @@ All records have `pk`, `sk`, `version`, and `value`. No secondary indexes or sca
 | `PROJECT#ROOT` | `GROUP_SYNC` | Durable Cognito synchronization request, generation, status, and safe error |
 | `PROJECT#ROOT` | `META` | Project, sequence, administrator count, mutation version |
 | `PROJECT#ROOT` | `ITEM#000000000001` | Work item by project ordinal |
+| `PROJECT#ROOT` | `COMMENT#ITEM#<ordinal>#<timestamp>#<uuid>` | Current work item comment |
+| `PROJECT#ROOT` | `COMMENT_ID#ITEM#<ordinal>#<uuid>` | Stable ID lookup for a comment |
+| `PROJECT#ROOT` | `COMMENT_REV#ITEM#<ordinal>#<uuid>#<version>` | Immutable comment revision |
 | `PROJECT#ROOT` | `MEMBER#<principal>` | Project membership listing |
 | `PRINCIPAL#<principal>` | `PROJECT#ROOT` | Authorization and user's project listing |
 | `PROJECT#ROOT` | `DOC#User#<uuid>` | Current document metadata |
@@ -88,3 +91,11 @@ The service records Cognito username/display snapshots with assignments after ve
 DynamoDB remains the access authority; JWT group claims are not used for project authorization. Group changes made outside dnt are overwritten on reconciliation and never independently grant dnt access. Project deletion stores a tombstone under the original slug, blocks content reads/writes immediately, and queues group deletion. Membership rows are retained for recovery and for former administrators to monitor/retry cleanup; project lists filter tombstones while preserving pagination. Documentation, work, and audit remain retained. Slugs and ticket identifiers cannot be reused.
 
 The Members page shows group names/status and actual users, searches existing Cognito accounts, changes/removes assignments, retries synchronization, and deletes projects. Legacy projects without a synchronization row can be provisioned using Retry synchronization or `reconcile_project_groups`; legacy memberships without usernames are resolved by the worker. Deleted Cognito accounts are reported as missing assignments for administrators to remove.
+
+## Markdown and revision history
+
+Document bodies remain native Markdown in immutable `.md` S3 objects with `text/markdown; charset=utf-8`. Each successful edit creates an immutable DynamoDB revision snapshot; title-only edits reuse the body object. Current and historical views use the same safe Markdown renderer. The browser lazily loads a CodeMirror Markdown source editor for pages, work item descriptions, and comments. Raw HTML is never executed.
+
+Document comparisons read two authorized snapshots and their bodies, then return exact line-based title/content diff segments. Work is bounded; large unrelated inputs return a marked full-text diff. No database, new infrastructure, or migration is needed.
+
+All work item kinds support comments. The current comment stays in its original chronological row. A `COMMENT_ID#` lookup points to that row and `COMMENT_REV#` rows retain immutable versions. Edits atomically update the current row, add a revision and write an audit event; the author or a project Administrator must provide the current version. Older comments without these rows are resolved through their existing list and backfilled on first edit. Original attribution remains unchanged; editor attribution is recorded separately on every edit and revision.

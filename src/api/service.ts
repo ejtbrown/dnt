@@ -1,3 +1,4 @@
+import { compareText } from "../shared/diff.js";
 import {
   projectGroups,
   syncKey,
@@ -607,14 +608,97 @@ export class Service {
         });
       }
     }
-    if (child === "items" && id && action === "comments" && path.length === 5) {
-      const item = need(
+    if (
+      child === "items" &&
+      id &&
+      action === "comments" &&
+      [5, 6, 7].includes(path.length)
+    ) {
+      need(
         await this.db.get<WorkItem>(pk, itemKey(slug, id)),
         "Work item not found",
       );
-      if (item.value.kind !== "Task")
-        throw new HttpError(400, "Comments belong to tasks");
       const prefix = `COMMENT#${itemKey(slug, id)}#`;
+      const commentId = path[5];
+      const revisionPrefix = (cid: string) =>
+        `COMMENT_REV#${itemKey(slug, id)}#${cid}#`;
+      if (commentId) {
+        if (!/^[0-9a-f-]{36}$/.test(commentId))
+          throw new HttpError(404, "Comment not found");
+        const indexKey = `COMMENT_ID#${itemKey(slug, id)}#${commentId}`;
+        const index = await this.db.get<{ key: string }>(pk, indexKey);
+        let current = index
+          ? await this.db.get<TaskComment>(pk, index.value.key)
+          : undefined;
+        // Historical comments predate the ID index. Resolve and backfill on edit.
+        if (!index) {
+          let cursor: string | undefined;
+          do {
+            const page = await this.db.query<TaskComment>(
+              pk,
+              prefix,
+              100,
+              cursor,
+            );
+            current = page.rows.find((r) => r.value.id === commentId);
+            cursor = page.next;
+          } while (!current && cursor);
+        }
+        const old = need(current, "Comment not found");
+        if (path[6] === "revisions" && path.length === 7 && method === "GET") {
+          const page = await this.page<TaskComment>(
+            pk,
+            revisionPrefix(commentId),
+            req,
+          );
+          if (!page.items.length && !req.query?.cursor)
+            page.items.push(old.value);
+          return { status: 200, body: page };
+        }
+        if (path.length !== 6 || method !== "PATCH")
+          throw new HttpError(405, "Method not allowed");
+        if (req.principal !== old.value.createdBy)
+          this.requireRole(membership, "Administrator");
+        this.expected(req, old);
+        const input = commentInput.parse(req.body);
+        return this.mutate(req, membership, project, async () => {
+          const value: TaskComment = {
+            ...old.value,
+            ...input,
+            itemId: id,
+            version: old.version + 1,
+            updatedAt: now(),
+            updatedBy: req.principal,
+            editAttribution: this.attribution(req),
+          };
+          const priorKey = `${revisionPrefix(commentId)}${String(old.version).padStart(12, "0")}`;
+          const writes: Write[] = [
+            { row: row(pk, old.sk, value), expected: old.version },
+            {
+              row: row(
+                pk,
+                `${revisionPrefix(commentId)}${String(value.version).padStart(12, "0")}`,
+                value,
+              ),
+              expected: null,
+            },
+          ];
+          if (!(await this.db.get(pk, priorKey)))
+            writes.push({ row: row(pk, priorKey, old.value), expected: null });
+          if (!index)
+            writes.push({
+              row: { pk, sk: indexKey, version: 1, value: { key: old.sk } },
+              expected: null,
+            });
+          return {
+            response: { status: 200, body: value },
+            writes,
+            action: "comment.updated",
+            target: `${id}/${commentId}`,
+          };
+        });
+      }
+      if (path.length !== 5) throw new HttpError(404, "Not found");
       if (method === "GET")
         return {
           status: 200,
@@ -628,18 +712,33 @@ export class Service {
             id: randomUUID(),
             project: slug,
             taskId: id,
+            itemId: id,
             version: 1,
             createdAt: now(),
             createdBy: req.principal,
             attribution: this.attribution(req),
           };
+          const key = `${prefix}${value.createdAt}#${value.id}`;
           return {
             response: { status: 201, body: value },
             action: "comment.created",
             target: id,
             writes: [
               {
-                row: row(pk, `${prefix}${value.createdAt}#${value.id}`, value),
+                row: row(pk, key, value),
+                expected: null,
+              },
+              {
+                row: {
+                  pk,
+                  sk: `COMMENT_ID#${itemKey(slug, id)}#${value.id}`,
+                  version: 1,
+                  value: { key },
+                },
+                expected: null,
+              },
+              {
+                row: row(pk, `${revisionPrefix(value.id)}000000000001`, value),
                 expected: null,
               },
             ],
@@ -796,6 +895,40 @@ export class Service {
           await this.db.get<Document>(pk, docKey(tree, documentId)),
           "Document not found",
         );
+        if (method === "GET" && revision === "compare" && path.length === 6) {
+          const numbers = [req.query?.from, req.query?.to];
+          if (numbers.some((n) => !n || !/^[1-9]\d{0,11}$/.test(n)))
+            throw new HttpError(
+              400,
+              "from and to must be positive revision numbers",
+            );
+          const [from, to] = await Promise.all(
+            numbers.map(async (n) => {
+              const record = need(
+                await this.db.get<Document>(
+                  pk,
+                  `REV#${tree}#${documentId}#${n!.padStart(12, "0")}`,
+                ),
+                "Revision not found",
+              );
+              return {
+                ...record.value,
+                content: await this.blobs.get(record.value.objectKey),
+              };
+            }),
+          );
+          const { content: before, ...fromMetadata } = from;
+          const { content: after, ...toMetadata } = to;
+          return {
+            status: 200,
+            body: {
+              from: fromMetadata,
+              to: toMetadata,
+              title: compareText(from.title, to.title),
+              content: compareText(before, after),
+            },
+          };
+        }
         if (method === "GET" && revision === "revisions") {
           if (!path[6])
             return {

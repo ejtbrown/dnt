@@ -147,11 +147,22 @@ export interface Document {
   attribution?: Attribution;
 }
 export const commentInput = z
-  .object({ content: z.string().trim().min(1).max(20_000) })
+  .object({
+    content: z
+      .string()
+      .min(1)
+      .max(20_000)
+      .refine((value) => !!value.trim(), "Comment cannot be blank"),
+  })
   .strict();
 export interface TaskComment {
+  itemId?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+  editAttribution?: Attribution;
   id: string;
   project: string;
+  // Legacy field retained for existing API clients; contains any work item ID.
   taskId: string;
   content: string;
   version: number;

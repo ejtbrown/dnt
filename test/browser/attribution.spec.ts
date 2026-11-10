@@ -125,11 +125,13 @@ test("MCP writes appear as the account via the agent in comments, document histo
       page.getByText("Erick Brown via Editor", { exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "History", exact: true }).click();
+    await page.getByLabel("Revision", { exact: true }).selectOption("1");
     await expect(
       page
         .getByRole("dialog")
         .getByText("Erick Brown via Writer", { exact: true }),
     ).toBeVisible();
+    await page.getByLabel("Revision", { exact: true }).selectOption("2");
     await expect(
       page
         .getByRole("dialog")
