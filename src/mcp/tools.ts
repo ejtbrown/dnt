@@ -237,7 +237,7 @@ export const operations: Operation[] = [
   },
   {
     name: "list_work_item_comments",
-    operationId: "listTaskComments",
+    operationId: "listWorkItemComments",
     method: "GET",
     description:
       "Read an Initiative, Epic, or Task's comments, oldest first, including authenticated author and optional agent attribution. Project membership required. Paginate using nextCursor.",
@@ -246,7 +246,7 @@ export const operations: Operation[] = [
   },
   {
     name: "create_work_item_comment",
-    operationId: "createTaskComment",
+    operationId: "createWorkItemComment",
     method: "POST",
     description:
       "Add a native Markdown comment to an Initiative, Epic, or Task. Project membership required. Edits retain immutable revisions. Use agentName to credit your agent; the authenticated account name is supplied by the server.",
@@ -486,20 +486,7 @@ export function createMcpServer(
       maxToolInputElements: 1000,
     },
   );
-  const aliases = operations
-    .filter((op) =>
-      ["list_work_item_comments", "create_work_item_comment"].includes(op.name),
-    )
-    .map((op) => ({
-      ...op,
-      name:
-        op.name === "list_work_item_comments"
-          ? "list_task_comments"
-          : "create_task_comment",
-      operationId: "",
-      description: `Compatibility alias for ${op.name}. ${op.description}`,
-    }));
-  for (const op of [...operations, ...aliases]) {
+  for (const op of operations) {
     const read = op.method === "GET";
     const scopes = read ? ["dnt:read"] : ["dnt:read", "dnt:write"];
     server.registerTool(
@@ -522,7 +509,7 @@ export function createMcpServer(
         },
         _meta: {
           securitySchemes: [{ type: "oauth2", scopes }],
-          ...(op.operationId ? { "dnt/operationId": op.operationId } : {}),
+          "dnt/operationId": op.operationId,
         },
       },
       async (a: any) => {

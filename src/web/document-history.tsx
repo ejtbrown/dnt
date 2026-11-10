@@ -136,7 +136,7 @@ export function DocumentHistory({
               <p className="byline">
                 Revision {page.version} ·{" "}
                 {new Date(page.updatedAt).toLocaleString()} ·{" "}
-                <bdi>{attributionLabel(page.attribution, page.updatedBy)}</bdi>
+                <bdi>{attributionLabel(page.attribution)}</bdi>
               </p>
               <div className="history-controls">
                 <button
@@ -196,9 +196,7 @@ export function DocumentHistory({
                 <p className="byline" key={index}>
                   {index === 0 ? "From" : "To"}: Revision {revision.version} ·{" "}
                   {new Date(revision.updatedAt).toLocaleString()} ·{" "}
-                  <bdi>
-                    {attributionLabel(revision.attribution, revision.updatedBy)}
-                  </bdi>
+                  <bdi>{attributionLabel(revision.attribution)}</bdi>
                 </p>
               ))}
               <h3>Title changes</h3>

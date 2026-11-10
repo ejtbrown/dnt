@@ -201,7 +201,7 @@ try {
   const anonymous = await connect();
   try {
     const tools = await anonymous.listTools();
-    assert.equal(tools.tools.length, 32);
+    assert.equal(tools.tools.length, 30);
     for (const tool of tools.tools)
       assert.equal(
         !!tool.inputSchema.properties?.agentName,
@@ -317,7 +317,7 @@ try {
     401,
   );
   console.log(
-    "Live MCP passed: discovery, 32 tools, OAuth challenges, Cognito redirect/cookie, synthetic authenticated reads, scope denial, disabled identity refresh, revocation.",
+    "Live MCP passed: discovery, 30 tools, OAuth challenges, Cognito redirect/cookie, synthetic authenticated reads, scope denial, disabled identity refresh, revocation.",
   );
 } finally {
   for (const pk of keys)

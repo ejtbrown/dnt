@@ -56,12 +56,12 @@ function Byline({
   attribution,
   principal,
 }: {
-  attribution?: Attribution;
+  attribution: Attribution;
   principal: string;
 }) {
   return (
     <span className="attribution" title={principal}>
-      <bdi>{attributionLabel(attribution, principal)}</bdi>
+      <bdi>{attributionLabel(attribution)}</bdi>
     </span>
   );
 }

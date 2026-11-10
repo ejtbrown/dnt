@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { attributionLabel, type TaskComment } from "../shared/model.js";
+import { attributionLabel, type WorkItemComment } from "../shared/model.js";
 import { api, all } from "./api.js";
 import { Content, MarkdownField } from "./markdown.js";
-function Byline({ comment }: { comment: TaskComment }) {
+function Byline({ comment }: { comment: WorkItemComment }) {
   return (
     <div className="byline">
-      <bdi>{attributionLabel(comment.attribution, comment.createdBy)}</bdi> ·{" "}
+      <bdi>{attributionLabel(comment.attribution)}</bdi> ·{" "}
       {new Date(comment.createdAt).toLocaleString()}
       {comment.updatedBy && (
         <div>
           Edited {new Date(comment.updatedAt!).toLocaleString()} by{" "}
-          <bdi>
-            {attributionLabel(comment.editAttribution, comment.updatedBy)}
-          </bdi>
+          <bdi>{attributionLabel(comment.editAttribution!)}</bdi>
         </div>
       )}
     </div>
@@ -24,23 +22,23 @@ function Comment({
   canEdit,
   updated,
 }: {
-  comment: TaskComment;
+  comment: WorkItemComment;
   path: string;
   canEdit: boolean;
-  updated: (value: TaskComment) => void;
+  updated: (value: WorkItemComment) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.content);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
-  const [revisions, setRevisions] = useState<TaskComment[]>();
+  const [revisions, setRevisions] = useState<WorkItemComment[]>();
   useEffect(() => {
     if (!showHistory) return;
     let active = true;
     setRevisions(undefined);
     setError("");
-    all<TaskComment>(`${path}/${comment.id}/revisions`)
+    all<WorkItemComment>(`${path}/${comment.id}/revisions`)
       .then((data) => {
         if (active) setRevisions(data.reverse());
       })
@@ -62,7 +60,7 @@ function Comment({
             setError("");
             try {
               updated(
-                await api<TaskComment>(
+                await api<WorkItemComment>(
                   `${path}/${comment.id}`,
                   "PATCH",
                   { content: draft },
@@ -136,7 +134,6 @@ function Comment({
                 ·{" "}
                 {attributionLabel(
                   revision.editAttribution ?? revision.attribution,
-                  revision.updatedBy ?? revision.createdBy,
                 )}
               </summary>
               <Content>{revision.content}</Content>
@@ -163,7 +160,7 @@ export function WorkItemComments({
   administrator: boolean;
 }) {
   const path = `/projects/${project}/items/${itemId}/comments`;
-  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [comments, setComments] = useState<WorkItemComment[]>([]);
   const [content, setContent] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -173,7 +170,7 @@ export function WorkItemComments({
     request.current = { content, key: crypto.randomUUID() };
   useEffect(() => {
     let active = true;
-    all<TaskComment>(path)
+    all<WorkItemComment>(path)
       .then((items) => {
         if (active) setComments(items);
       })
@@ -227,7 +224,7 @@ export function WorkItemComments({
               undefined,
               request.current.key,
             );
-            setComments(await all<TaskComment>(path));
+            setComments(await all<WorkItemComment>(path));
             setContent("");
           } catch (e) {
             setError((e as Error).message);

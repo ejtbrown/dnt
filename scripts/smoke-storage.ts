@@ -206,7 +206,7 @@ try {
       assert.ok(!response.isError, "MCP storage operation failed");
       return (response.structuredContent as any).result;
     };
-    const comment = await call("create_task_comment", {
+    const comment = await call("create_work_item_comment", {
       project: "ROOT",
       id: task.body.id,
       input: { content: "Isolated attributed comment" },
@@ -219,8 +219,12 @@ try {
       agentName: "Storage Agent",
     });
     assert.equal(
-      (await call("list_task_comments", { project: "ROOT", id: task.body.id }))
-        .items[0].attribution.agentName,
+      (
+        await call("list_work_item_comments", {
+          project: "ROOT",
+          id: task.body.id,
+        })
+      ).items[0].attribution.agentName,
       "Storage Agent",
     );
     const commentArgs = {

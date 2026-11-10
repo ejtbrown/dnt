@@ -71,6 +71,7 @@ const item = object(
     "createdAt",
     "updatedAt",
     "updatedBy",
+    "attribution",
   ],
 );
 const document = object({
@@ -84,10 +85,8 @@ const document = object({
   createdAt: date,
   updatedAt: date,
   updatedBy: string,
+  attribution: ref("Attribution"),
 });
-// Attribution is additive: historical records may have only updatedBy/principal.
-(document.properties as Record<string, unknown>).attribution =
-  ref("Attribution");
 const schemas: Record<string, unknown> = {
   Attribution: object(
     {
@@ -97,14 +96,10 @@ const schemas: Record<string, unknown> = {
     },
     ["principal", "userName"],
   ),
-  TaskComment: object(
+  WorkItemComment: object(
     {
       id: { type: "string", format: "uuid" },
       project: string,
-      taskId: {
-        ...string,
-        description: "Legacy field containing the Initiative, Epic or Task ID",
-      },
       itemId: string,
       updatedAt: date,
       updatedBy: string,
@@ -118,7 +113,7 @@ const schemas: Record<string, unknown> = {
     [
       "id",
       "project",
-      "taskId",
+      "itemId",
       "content",
       "version",
       "createdAt",
@@ -178,7 +173,7 @@ const schemas: Record<string, unknown> = {
         owned: { type: "boolean" },
       }),
     },
-    sync: { anyOf: [ref("GroupSync"), { type: "null" }] },
+    sync: ref("GroupSync"),
   }),
   GroupSyncQueued: object({ project: string, status: { const: "pending" } }),
   Membership: membership,
@@ -202,7 +197,7 @@ const schemas: Record<string, unknown> = {
       at: date,
       attribution: ref("Attribution"),
     },
-    ["action", "target", "principal", "at"],
+    ["action", "target", "principal", "at", "attribution"],
   ),
   Error: object(
     { error: string, details: { type: "array", items: { type: "object" } } },
@@ -225,7 +220,7 @@ for (const name of [
   "WorkItem",
   "Document",
   "Audit",
-  "TaskComment",
+  "WorkItemComment",
 ])
   schemas[`${name}Page`] = object(
     { items: { type: "array", items: ref(name) }, nextCursor: string },
@@ -435,18 +430,18 @@ route(
 route(
   "/projects/{project}/items/{id}/comments",
   "get",
-  "listTaskComments",
+  "listWorkItemComments",
   "List Initiative, Epic or Task comments; project membership required",
-  "TaskCommentPage",
+  "WorkItemCommentPage",
   undefined,
   { paginated: true },
 );
 route(
   "/projects/{project}/items/{id}/comments",
   "post",
-  "createTaskComment",
+  "createWorkItemComment",
   "Add a Markdown comment to any work item; project membership required",
-  "TaskComment",
+  "WorkItemComment",
   "CommentInput",
 );
 route(
@@ -454,7 +449,7 @@ route(
   "patch",
   "updateWorkItemComment",
   "Edit a comment as its author or a project Administrator, retaining immutable history",
-  "TaskComment",
+  "WorkItemComment",
   "CommentInput",
   { version: true },
 );
@@ -463,7 +458,7 @@ route(
   "get",
   "listWorkItemCommentRevisions",
   "List immutable comment revisions including Markdown, oldest first; project membership required",
-  "TaskCommentPage",
+  "WorkItemCommentPage",
   undefined,
   { paginated: true },
 );

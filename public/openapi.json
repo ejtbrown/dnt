@@ -1430,7 +1430,7 @@
     },
     "/projects/{project}/items/{id}/comments": {
       "get": {
-        "operationId": "listTaskComments",
+        "operationId": "listWorkItemComments",
         "summary": "List Initiative, Epic or Task comments; project membership required",
         "parameters": [
           {
@@ -1474,7 +1474,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskCommentPage"
+                  "$ref": "#/components/schemas/WorkItemCommentPage"
                 }
               }
             },
@@ -1600,7 +1600,7 @@
         }
       },
       "post": {
-        "operationId": "createTaskComment",
+        "operationId": "createWorkItemComment",
         "summary": "Add a Markdown comment to any work item; project membership required",
         "parameters": [
           {
@@ -1645,7 +1645,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskComment"
+                  "$ref": "#/components/schemas/WorkItemComment"
                 }
               }
             },
@@ -1826,7 +1826,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskComment"
+                  "$ref": "#/components/schemas/WorkItemComment"
                 }
               }
             },
@@ -2006,7 +2006,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TaskCommentPage"
+                  "$ref": "#/components/schemas/WorkItemCommentPage"
                 }
               }
             },
@@ -4715,7 +4715,7 @@
         ],
         "additionalProperties": false
       },
-      "TaskComment": {
+      "WorkItemComment": {
         "type": "object",
         "properties": {
           "id": {
@@ -4724,10 +4724,6 @@
           },
           "project": {
             "type": "string"
-          },
-          "taskId": {
-            "type": "string",
-            "description": "Legacy field containing the Initiative, Epic or Task ID"
           },
           "itemId": {
             "type": "string"
@@ -4763,7 +4759,7 @@
         "required": [
           "id",
           "project",
-          "taskId",
+          "itemId",
           "content",
           "version",
           "createdAt",
@@ -4994,14 +4990,7 @@
             }
           },
           "sync": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/GroupSync"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/GroupSync"
           }
         },
         "required": [
@@ -5148,7 +5137,8 @@
           "version",
           "createdAt",
           "updatedAt",
-          "updatedBy"
+          "updatedBy",
+          "attribution"
         ],
         "additionalProperties": false
       },
@@ -5210,7 +5200,8 @@
           "version",
           "createdAt",
           "updatedAt",
-          "updatedBy"
+          "updatedBy",
+          "attribution"
         ],
         "additionalProperties": false
       },
@@ -5276,6 +5267,7 @@
           "createdAt",
           "updatedAt",
           "updatedBy",
+          "attribution",
           "content"
         ],
         "additionalProperties": false
@@ -5324,7 +5316,8 @@
           "action",
           "target",
           "principal",
-          "at"
+          "at",
+          "attribution"
         ],
         "additionalProperties": false
       },
@@ -5665,13 +5658,13 @@
         ],
         "additionalProperties": false
       },
-      "TaskCommentPage": {
+      "WorkItemCommentPage": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TaskComment"
+              "$ref": "#/components/schemas/WorkItemComment"
             }
           },
           "nextCursor": {

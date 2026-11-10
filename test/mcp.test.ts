@@ -48,7 +48,7 @@ test("official MCP client initializes stateless HTTP, discovers complete typed t
     client = await connect(f);
   try {
     const tools = (await client.listTools()).tools;
-    assert.equal(tools.length, 32);
+    assert.equal(tools.length, 30);
     const openapi = JSON.parse(readFileSync("public/openapi.json", "utf8"));
     const expected = Object.values(openapi.paths)
       .flatMap((methods: any) =>

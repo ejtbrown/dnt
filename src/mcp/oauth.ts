@@ -146,8 +146,8 @@ export class MetadataClients {
     const parsed = clientMetadata.safeParse(document);
     if (!parsed.success) fail("invalid_client");
     const data = parsed.data;
-    // During the CIMD transition the plural field is authoritative; the singular
-    // field is a legacy preference. We advertise and accept public-client PKCE.
+    // Select public-client PKCE from the client’s supported methods. The singular
+    // field declares a preference, which need not be the only supported method.
     const methods = data.token_endpoint_auth_methods_supported ?? [
       data.token_endpoint_auth_method ?? "none",
     ];
