@@ -56,6 +56,9 @@ export class ToolingStack extends Stack {
             "dynamodb:BatchWriteItem",
             "dynamodb:DescribeTable",
             "dynamodb:ConditionCheckItem",
+            "dynamodb:DescribeStream",
+            "dynamodb:GetRecords",
+            "dynamodb:GetShardIterator",
           ],
           resources: [arn("dynamodb", config.region, "table/dnt-data-*")],
         }),
@@ -74,10 +77,35 @@ export class ToolingStack extends Stack {
     });
     runtimeBoundary.addStatements(
       new iam.PolicyStatement({
-        actions: ["cognito-idp:AdminGetUser"],
+        actions: ["dynamodb:ListStreams"],
+        resources: ["*"],
+      }),
+    );
+    runtimeBoundary.addStatements(
+      new iam.PolicyStatement({
+        actions: [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:ListUsers",
+          "cognito-idp:GetGroup",
+          "cognito-idp:ListUsersInGroup",
+          "cognito-idp:CreateGroup",
+          "cognito-idp:DeleteGroup",
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminRemoveUserFromGroup",
+        ],
         resources: [
           arn("cognito-idp", config.region, `userpool/${config.cognitoPoolId}`),
         ],
+      }),
+    );
+    runtimeBoundary.addStatements(
+      new iam.PolicyStatement({
+        actions: [
+          "sqs:SendMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl",
+        ],
+        resources: [arn("sqs", config.region, "dnt-app-*")],
       }),
     );
     const execution = new iam.ManagedPolicy(this, "ExecutionPolicy", {
@@ -117,6 +145,33 @@ export class ToolingStack extends Stack {
       [config.region, "us-east-1"].map((region) =>
         arn("ssm", region, `parameter/cdk-bootstrap/${qualifier}/version`),
       ),
+    );
+    allow(["sqs:*"], [arn("sqs", config.region, "dnt-app-*")]);
+    allow(
+      [
+        "lambda:CreateEventSourceMapping",
+        "lambda:UpdateEventSourceMapping",
+        "lambda:DeleteEventSourceMapping",
+      ],
+      ["*"],
+      {
+        ArnLike: {
+          "lambda:FunctionArn": arn(
+            "lambda",
+            config.region,
+            "function:dnt-app-*",
+          ),
+        },
+      },
+    );
+    allow(
+      [
+        "lambda:GetEventSourceMapping",
+        "lambda:ListTags",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+      ],
+      [arn("lambda", config.region, "event-source-mapping:*")],
     );
     allow(["dynamodb:*"], [arn("dynamodb", config.region, "table/dnt-data-*")]);
     allow(

@@ -1,3 +1,4 @@
+import { CognitoDirectory } from "../groups/cognito.js";
 import { DynamoStore, S3Blobs } from "./aws-store.js";
 import { Service, HttpError } from "./service.js";
 import { AccountNames } from "./names.js";
@@ -7,6 +8,8 @@ const service = new Service(
   new DynamoStore(process.env.TABLE_NAME!),
   new S3Blobs(process.env.CONTENT_BUCKET!),
   JSON.parse(process.env.PROJECT_CREATORS ?? "[]"),
+  new CognitoDirectory(process.env.COGNITO_POOL_ID!),
+  process.env.PUBLIC_ORIGIN!,
 );
 export async function handler(event: any) {
   const headers = {

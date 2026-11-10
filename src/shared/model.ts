@@ -96,6 +96,7 @@ export const memberInput = z
   .strict();
 
 export interface Project {
+  deletedAt?: string;
   slug: string;
   name: string;
   description: string;
@@ -106,6 +107,11 @@ export interface Project {
   updatedAt: string;
 }
 export interface Membership {
+  // Added only by project listings when an administrator includes deleted projects.
+  deletedAt?: string;
+  username?: string;
+  name?: string;
+  email?: string;
   principal: string;
   project: string;
   role: Role;

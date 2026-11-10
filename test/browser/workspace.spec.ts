@@ -144,13 +144,62 @@ test("a team can create a project, plan work, move tasks, and revise documentati
   ).toBeVisible();
   await page.getByRole("button", { name: "Members", exact: true }).click();
   await page.getByRole("button", { name: "Add member", exact: true }).click();
-  await page.getByLabel("Identity").fill("cognito:teammate");
+  await page.getByLabel("Find Cognito users by email").fill("teammate");
+  await page.getByRole("button", { name: "Find users", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Teammate · teammate@example.com",
+      exact: true,
+    })
+    .click();
+  await expect(page.getByLabel("Identity")).toHaveValue("cognito:teammate");
   await page
     .getByRole("button", { name: "Add member", exact: true })
     .last()
     .click();
   await expect(
     page.locator(".member-list").getByText("cognito:teammate", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Synchronization: ready", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "View User group users" }).click();
+  await expect(
+    page.locator(".group-grid").getByText("Teammate", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Role for cognito:teammate").selectOption("Maintainer");
+  await expect(page.getByLabel("Role for cognito:teammate")).toHaveValue(
+    "Maintainer",
+  );
+  await expect(
+    page.getByText("Synchronization: ready", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "View Maintainer group users" })
+    .click();
+  await expect(
+    page.locator(".group-grid").getByText("Teammate", { exact: true }),
+  ).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByLabel("Remove cognito:teammate").click();
+  await expect(page.getByLabel("Role for cognito:teammate")).toHaveCount(0);
+  const deleteButton = page.getByRole("button", { name: /^Delete [A-Z0-9]+$/ });
+  expect((await deleteButton.innerText()).slice(7)).toBe(slug);
+  page.once("dialog", (dialog) => dialog.accept(slug));
+  await deleteButton.click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText("Synchronization: deleted", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page.reload();
+  await page.getByText("Deleted projects", { exact: true }).click();
+  await page.getByRole("button", { name: `Check ${slug} deletion` }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText("Synchronization: deleted", { exact: true }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

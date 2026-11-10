@@ -284,3 +284,49 @@ test("MCP routes forward uncached requests and OAuth state is retained with TTL"
     `arn:aws:cognito-idp:${config.region}:${config.account}:userpool/${config.cognitoPoolId}`,
   );
 });
+
+test("Cognito reconciliation is durable, serial, filtered, and isolated from HTTP write privileges", () => {
+  dataTemplate.hasResourceProperties("AWS::DynamoDB::Table", {
+    StreamSpecification: { StreamViewType: "NEW_IMAGE" },
+  });
+  serviceTemplate.hasResourceProperties("AWS::Lambda::Function", {
+    ReservedConcurrentExecutions: 1,
+    Timeout: 300,
+  });
+  serviceTemplate.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+    StartingPosition: "TRIM_HORIZON",
+    BatchSize: 1,
+    MaximumRetryAttempts: 6,
+    MaximumRecordAgeInSeconds: 21600,
+    FilterCriteria: {
+      Filters: [
+        {
+          Pattern: JSON.stringify({
+            eventName: ["INSERT", "MODIFY"],
+            dynamodb: {
+              NewImage: {
+                pk: { S: [{ prefix: "PROJECT#" }] },
+                sk: { S: ["GROUP_SYNC"] },
+                value: { M: { status: { S: ["pending"] } } },
+              },
+            },
+          }),
+        },
+      ],
+    },
+    DestinationConfig: { OnFailure: { Destination: Match.anyValue() } },
+  });
+  const policies = serviceTemplate.findResources("AWS::IAM::Policy");
+  for (const prefix of ["ApiFunction", "McpFunction", "GroupWorker"]) {
+    const policy = Object.entries(policies).find(([id]) =>
+      id.startsWith(prefix),
+    )![1] as any;
+    const actions = policy.Properties.PolicyDocument.Statement.flatMap(
+      (s: any) => [s.Action].flat(),
+    );
+    assert.equal(
+      actions.includes("cognito-idp:DeleteGroup"),
+      prefix === "GroupWorker",
+    );
+  }
+});

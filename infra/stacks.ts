@@ -12,6 +12,8 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as events from "aws-cdk-lib/aws-lambda-event-sources";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as apigw from "aws-cdk-lib/aws-apigatewayv2";
 import {
@@ -35,6 +37,7 @@ export class DataStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps) {
     super(scope, id, { ...props, terminationProtection: true });
     this.table = new dynamodb.Table(this, "Records", {
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -114,6 +117,7 @@ export class AppStack extends Stack {
       memorySize: 256,
       logGroup: functionLogs,
       environment: {
+        PUBLIC_ORIGIN: `https://${config.domain}`,
         TABLE_NAME: data.table.tableName,
         CONTENT_BUCKET: data.content.bucketName,
         COGNITO_ISSUER: issuer,
@@ -125,7 +129,12 @@ export class AppStack extends Stack {
     });
     fn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["cognito-idp:AdminGetUser"],
+        actions: [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:ListUsers",
+          "cognito-idp:GetGroup",
+          "cognito-idp:ListUsersInGroup",
+        ],
         resources: [
           `arn:aws:cognito-idp:${config.region}:${config.account}:userpool/${poolId.valueAsString}`,
         ],
@@ -134,6 +143,80 @@ export class AppStack extends Stack {
     data.table.grantReadWriteData(fn);
     data.content.grantRead(fn);
     data.content.grantPut(fn);
+    const groupFailures = new sqs.Queue(this, "GroupFailures", {
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      retentionPeriod: Duration.days(14),
+      enforceSSL: true,
+    });
+    const groupWorker = new lambda.Function(this, "GroupWorker", {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.ARM_64,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("dist/groups"),
+      timeout: Duration.minutes(5),
+      memorySize: 256,
+      reservedConcurrentExecutions: 1,
+      logGroup: new logs.LogGroup(this, "GroupLogs", {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.RETAIN,
+      }),
+      environment: {
+        TABLE_NAME: data.table.tableName,
+        COGNITO_POOL_ID: poolId.valueAsString,
+        PUBLIC_ORIGIN: `https://${config.domain}`,
+      },
+    });
+    data.table.grantReadWriteData(groupWorker);
+    groupWorker.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:ListUsers",
+          "cognito-idp:GetGroup",
+          "cognito-idp:ListUsersInGroup",
+          "cognito-idp:CreateGroup",
+          "cognito-idp:DeleteGroup",
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminRemoveUserFromGroup",
+        ],
+        resources: [
+          `arn:aws:cognito-idp:${config.region}:${config.account}:userpool/${poolId.valueAsString}`,
+        ],
+      }),
+    );
+    groupWorker.addEventSource(
+      new events.DynamoEventSource(data.table, {
+        startingPosition: lambda.StartingPosition.TRIM_HORIZON,
+        batchSize: 1,
+        parallelizationFactor: 1,
+        retryAttempts: 6,
+        maxRecordAge: Duration.hours(6),
+        onFailure: new events.SqsDlq(groupFailures),
+        filters: [
+          lambda.FilterCriteria.filter({
+            eventName: ["INSERT", "MODIFY"],
+            dynamodb: {
+              NewImage: {
+                pk: { S: [{ prefix: "PROJECT#" }] },
+                sk: { S: ["GROUP_SYNC"] },
+                value: { M: { status: { S: ["pending"] } } },
+              },
+            },
+          }),
+        ],
+      }),
+    );
+    new cloudwatch.Alarm(this, "GroupSyncFailures", {
+      metric: groupFailures.metricApproximateNumberOfMessagesVisible(),
+      threshold: 1,
+      evaluationPeriods: 1,
+      alarmDescription:
+        "Project group synchronization exhausted retries. Reconcile the project from Members or MCP.",
+    });
+    new CfnOutput(this, "GroupWorkerName", { value: groupWorker.functionName });
+    new CfnOutput(this, "GroupFailuresQueue", {
+      value: groupFailures.queueUrl,
+    });
     const api = new apigw.HttpApi(this, "HttpApi", {
       apiName: "dnt",
       createDefaultStage: true,
@@ -185,7 +268,12 @@ export class AppStack extends Stack {
     data.oauth.grantReadWriteData(mcp);
     mcp.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["cognito-idp:AdminGetUser"],
+        actions: [
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:ListUsers",
+          "cognito-idp:GetGroup",
+          "cognito-idp:ListUsersInGroup",
+        ],
         resources: [
           `arn:aws:cognito-idp:${config.region}:${config.account}:userpool/${poolId.valueAsString}`,
         ],

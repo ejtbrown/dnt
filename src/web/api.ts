@@ -114,7 +114,7 @@ export async function all<T>(path: string): Promise<T[]> {
   let cursor: string | undefined;
   do {
     const page: Page<T> = await api(
-      `${path}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+      `${path}${cursor ? `${path.includes("?") ? "&" : "?"}cursor=${encodeURIComponent(cursor)}` : ""}`,
     );
     result.push(...page.items);
     cursor = page.nextCursor;

@@ -1,3 +1,10 @@
+import {
+  projectGroups,
+  syncKey,
+  type Directory,
+  type GroupSync,
+} from "../groups/model.js";
+import { requestSync, isOwned } from "../groups/sync.js";
 import { createHash, randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import {
@@ -86,6 +93,8 @@ export class Service {
     readonly db: Store,
     readonly blobs: Blobs,
     readonly projectCreators: string[],
+    readonly directory?: Directory,
+    readonly origin = "http://localhost:5173",
   ) {}
   async handle(req: Request): Promise<Response> {
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -123,6 +132,20 @@ export class Service {
       }
     }
     throw new Error("Unreachable");
+  }
+  async memberDetails(principal: string) {
+    if (!principal.startsWith("cognito:") || !this.directory) return {};
+    const user = await this.directory.resolve(principal);
+    if (!user)
+      throw new HttpError(
+        400,
+        "Cognito user does not exist; select an existing account",
+      );
+    return {
+      username: user.username,
+      name: user.name,
+      ...(user.email ? { email: user.email } : {}),
+    };
   }
   async membership(principal: string, slug: string, minimum: Role = "User") {
     const key = memberKey(principal, slug);
@@ -224,6 +247,16 @@ export class Service {
         expected: project.version,
       });
     }
+    if (
+      [
+        "project.created",
+        "project.deleted",
+        "membership.set",
+        "membership.removed",
+        "groups.reconciled",
+      ].includes(action)
+    )
+      writes.push(await requestSync(this.db, pk.slice("PROJECT#".length)));
     writes.push({
       row: {
         pk,
@@ -291,15 +324,36 @@ export class Service {
       };
     if (resource !== "projects") throw new HttpError(404, "Not found");
     if (!slug) {
-      if (method === "GET")
+      if (method === "GET") {
+        const includeDeleted = req.query?.includeDeleted;
+        if (
+          includeDeleted !== undefined &&
+          !["true", "false"].includes(includeDeleted)
+        )
+          throw new HttpError(400, "includeDeleted must be true or false");
+        const page = await this.page<Membership>(
+          `PRINCIPAL#${req.principal}`,
+          "PROJECT#",
+          req,
+        );
+        const visible = await Promise.all(
+          page.items.map(async (m) => {
+            const project = await this.db.get<Project>(
+              projectKey(m.project),
+              "META",
+            );
+            if (!project) return undefined;
+            if (!project.value.deletedAt) return m;
+            return includeDeleted === "true" && m.role === "Administrator"
+              ? { ...m, deletedAt: project.value.deletedAt }
+              : undefined;
+          }),
+        );
         return {
           status: 200,
-          body: await this.page<Membership>(
-            `PRINCIPAL#${req.principal}`,
-            "PROJECT#",
-            req,
-          ),
+          body: { ...page, items: visible.filter(Boolean) },
         };
+      }
       if (method !== "POST") throw new HttpError(405, "Method not allowed");
       if (!this.projectCreators.includes(req.principal))
         throw new HttpError(
@@ -320,6 +374,7 @@ export class Service {
           updatedAt: now(),
         };
         const membership: Membership = {
+          ...(await this.memberDetails(req.principal)),
           principal: req.principal,
           project: input.slug,
           role: "Administrator",
@@ -347,6 +402,98 @@ export class Service {
     const existingProject = await this.db.get<Project>(pk, "META");
     const membership = await this.membership(req.principal, slug);
     const project = need(existingProject);
+    if (child === "groups" || child === "users") {
+      this.requireRole(membership, "Administrator");
+      if (
+        child === "groups" &&
+        id === "reconcile" &&
+        path.length === 4 &&
+        method === "POST"
+      )
+        return this.mutate(req, membership, project, async () => ({
+          response: { status: 202, body: { project: slug, status: "pending" } },
+          writes: [],
+          action: "groups.reconciled",
+          target: slug,
+        }));
+      if (!this.directory)
+        throw new HttpError(503, "User directory is unavailable");
+      if (child === "groups" && !id && method === "GET") {
+        const sync = await this.db.get<GroupSync>(pk, syncKey(slug).sk);
+        const groups = await Promise.all(
+          projectGroups(slug).map(async (g) => {
+            const existing = await this.directory!.group(g.name);
+            return {
+              ...g,
+              exists: !!existing,
+              owned: !!existing && isOwned(existing, this.origin, slug, g.role),
+            };
+          }),
+        );
+        return {
+          status: 200,
+          body: {
+            project: slug,
+            deleted: !!project.value.deletedAt,
+            groups,
+            sync: sync?.value ?? null,
+          },
+        };
+      }
+      if (project.value.deletedAt)
+        throw new HttpError(404, "Project not found");
+      if (
+        method === "GET" &&
+        ((child === "users" && !id) ||
+          (child === "groups" && action === "users" && path.length === 5))
+      ) {
+        const limit = req.query?.limit ?? "60";
+        if (!/^\d+$/.test(limit) || +limit < 1 || +limit > 60)
+          throw new HttpError(400, "limit must be between 1 and 60");
+        const cursor = req.query?.cursor;
+        if (cursor && cursor.length > 4096)
+          throw new HttpError(400, "Invalid cursor");
+        if (child === "users") {
+          const search = req.query?.search ?? "";
+          if (search.length > 128)
+            throw new HttpError(400, "Search is too long");
+          return {
+            status: 200,
+            body: await this.directory.users(search, +limit, cursor),
+          };
+        }
+        const group = projectGroups(slug).find((g) => g.role === id);
+        if (!group) throw new HttpError(400, "Invalid project role");
+        const existing = await this.directory.group(group.name);
+        if (!existing) return { status: 200, body: { items: [] } };
+        if (!isOwned(existing, this.origin, slug, group.role))
+          throw new HttpError(409, "Group belongs to another application");
+        return {
+          status: 200,
+          body: await this.directory.groupUsers(group.name, +limit, cursor),
+        };
+      }
+      throw new HttpError(405, "Method not allowed");
+    }
+    if (project.value.deletedAt) throw new HttpError(404, "Project not found");
+    if (!child && method === "DELETE") {
+      this.requireRole(membership, "Administrator");
+      this.expected(req, project);
+      return this.mutate(req, membership, project, async () => {
+        const value = {
+          ...project.value,
+          deletedAt: now(),
+          updatedAt: now(),
+          version: project.version + 1,
+        };
+        return {
+          response: { status: 202, body: value },
+          writes: [{ row: row(pk, "META", value), expected: project.version }],
+          action: "project.deleted",
+          target: slug,
+        };
+      });
+    }
     if (!child && method === "GET")
       return {
         status: 200,
@@ -375,6 +522,7 @@ export class Service {
           if (administrators < 1)
             throw new HttpError(409, "A project must retain an administrator");
           const value: Membership = {
+            ...(await this.memberDetails(input.principal)),
             ...input,
             project: slug,
             version: (old?.version ?? 0) + 1,

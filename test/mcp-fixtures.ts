@@ -1,3 +1,4 @@
+import { MemoryDirectory } from "../src/groups/memory.js";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { MemoryStore, MemoryBlobs } from "../src/api/store.js";
@@ -54,10 +55,18 @@ export function fixture() {
       },
     },
   );
-  const service = new Service(serviceDb, new MemoryBlobs(), [admin]);
+  const directory = new MemoryDirectory(true);
+  const service = new Service(
+    serviceDb,
+    new MemoryBlobs(),
+    [admin],
+    directory,
+    origin,
+  );
   return {
     ...fixture,
     broker,
+    directory,
     service,
     http: createHttpHandler(service, broker),
     settings: fixture,

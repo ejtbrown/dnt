@@ -1251,3 +1251,62 @@ form .description-input {
 .task-comments textarea {
   min-height: 90px;
 }
+
+.project-groups {
+  border: 1px solid #d9dfe5;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.project-groups h3 {
+  margin: 0 0 12px;
+}
+.group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.group-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.group-grid code,
+.member-identity code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.project-delete {
+  border-top: 1px solid #d9dfe5;
+  margin-top: 24px;
+  padding-top: 20px;
+}
+.user-picker {
+  border-bottom: 1px solid #d9dfe5;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+}
+.user-picker ul {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-left: 0;
+  list-style: none;
+}
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.deleted-projects {
+  padding: 16px 0;
+  font-size: 13px;
+}
+.deleted-projects button {
+  display: block;
+  margin-top: 8px;
+}
