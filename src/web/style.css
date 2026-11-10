@@ -1356,15 +1356,94 @@ dialog.wide-dialog {
 dialog.work-item-dialog {
   width: 75vw;
   max-width: none;
+  padding: 0;
+  overflow: hidden;
+}
+dialog.work-item-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+dialog.work-item-dialog .dialog-title {
+  flex: none;
+  padding: 24px 28px;
+  margin: 0;
+  border-bottom: 1px solid #dce4d1;
+  background: white;
+}
+dialog.work-item-dialog .dialog-title h2 {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+dialog.work-item-dialog .dialog-title button {
+  flex: none;
+}
+dialog.work-item-dialog .dialog-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 20px 28px 28px;
+  overscroll-behavior: contain;
 }
 dialog.work-item-dialog .form-row > label {
   min-width: 0;
 }
 @media (max-width: 720px) {
+  dialog.work-item-dialog .dialog-title,
+  dialog.work-item-dialog .dialog-body {
+    padding: 20px;
+  }
   dialog.work-item-dialog .form-row {
     flex-direction: column;
     gap: 0;
   }
+}
+.doc-actions {
+  flex-wrap: wrap;
+}
+.page-sharing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin: 20px 0;
+}
+.page-sharing a,
+.direct-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #275e48;
+}
+.checkbox-label,
+form .checkbox-label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+}
+.checkbox-label input {
+  width: auto;
+  accent-color: #275e48;
+}
+.public-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.public-page header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.public-page .brand {
+  max-width: 210px;
+}
+.public-page .document {
+  min-width: 0;
+  padding: clamp(16px, 4vw, 40px);
 }
 .history-controls {
   display: flex;

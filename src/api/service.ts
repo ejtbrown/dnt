@@ -1,5 +1,10 @@
 import { compareText } from "../shared/diff.js";
 import {
+  parseDocumentReference,
+  documentLink,
+  itemLink,
+} from "../shared/links.js";
+import {
   projectGroups,
   syncKey,
   type Directory,
@@ -99,7 +104,8 @@ export class Service {
   async handle(req: Request): Promise<Response> {
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        return await this.dispatch(req);
+        const response = await this.dispatch(req);
+        return { ...response, body: this.withLinks(response.body) };
       } catch (error) {
         if (error instanceof Conflict && attempt < 4) {
           await new Promise((resolve) =>
@@ -132,6 +138,22 @@ export class Service {
       }
     }
     throw new Error("Unreachable");
+  }
+  withLinks(value: any): any {
+    if (Array.isArray(value)) return value.map((v) => this.withLinks(v));
+    if (!value || typeof value !== "object") return value;
+    const result = Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, this.withLinks(v)]),
+    );
+    if (typeof value.id === "string" && roles.includes(value.tree))
+      result.url = `${this.origin}${documentLink(value.tree, value.id)}`;
+    else if (
+      typeof value.id === "string" &&
+      typeof value.ordinal === "number" &&
+      value.kind
+    )
+      result.url = `${this.origin}${itemLink(value.id)}`;
+    return result;
   }
   async isDntAdmin(principal: string) {
     try {
@@ -336,6 +358,27 @@ export class Service {
       throw new HttpError(404, "Not found");
     const [resource, slug, child, id, action, revision] = path;
     const method = req.method;
+    if (
+      resource === "public" &&
+      slug === "documents" &&
+      child &&
+      path.length === 3 &&
+      method === "GET"
+    )
+      return this.readPublicDocument(child);
+    if (!req.principal) throw new HttpError(401, "Authentication required");
+    if (
+      resource === "documents" &&
+      slug &&
+      path.length === 2 &&
+      method === "GET"
+    ) {
+      const location = await this.locateDocument(slug);
+      return this.dispatch({
+        ...req,
+        path: `/api/v1/projects/${location.project}/docs/${location.tree}/${location.id}`,
+      });
+    }
     if (resource === "me" && path.length === 1 && method === "GET") {
       const isDntAdmin = await this.isDntAdmin(req.principal);
       return {
@@ -850,6 +893,7 @@ export class Service {
             tree,
             parentId: input.parentId,
             title: input.title,
+            public: input.public,
             objectKey,
             version: 1,
             createdAt: now(),
@@ -864,6 +908,14 @@ export class Service {
             writes: [
               { row: row(pk, docKey(tree, uuid), value), expected: null },
               {
+                row: row(`DOCUMENT#${uuid}`, "LOCATION", {
+                  project: slug,
+                  tree,
+                  version: 1,
+                }),
+                expected: null,
+              },
+              {
                 row: row(pk, `REV#${tree}#${uuid}#000000000001`, value),
                 expected: null,
               },
@@ -876,6 +928,38 @@ export class Service {
           await this.db.get<Document>(pk, docKey(tree, documentId)),
           "Document not found",
         );
+        if (!revision && method === "DELETE") {
+          this.expected(req, current);
+          return this.mutate(req, membership, project, async () => {
+            let after: string | undefined;
+            do {
+              const page = await this.db.query<Document>(
+                pk,
+                `DOC#${tree}#`,
+                100,
+                after,
+              );
+              if (page.rows.some((r) => r.value.parentId === documentId))
+                throw new HttpError(
+                  409,
+                  "Delete child pages before deleting this page",
+                );
+              after = page.next;
+            } while (after);
+            const location = need(
+              await this.db.get(`DOCUMENT#${documentId}`, "LOCATION"),
+            );
+            return {
+              response: { status: 204, body: undefined },
+              action: "document.deleted",
+              target: documentId,
+              writes: [
+                { row: current, expected: current.version, remove: true },
+                { row: location, expected: location.version, remove: true },
+              ],
+            };
+          });
+        }
         if (method === "GET" && revision === "compare" && path.length === 6) {
           const numbers = [req.query?.from, req.query?.to];
           if (numbers.some((n) => !n || !/^[1-9]\d{0,11}$/.test(n)))
@@ -958,6 +1042,7 @@ export class Service {
             const value: Document = {
               ...current.value,
               title: patch.title ?? current.value.title,
+              public: patch.public ?? current.value.public,
               objectKey,
               version: current.version + 1,
               updatedAt: now(),
@@ -993,6 +1078,50 @@ export class Service {
       return { status: 200, body: await this.page(pk, "AUDIT#", req) };
     }
     throw new HttpError(404, "Not found");
+  }
+  async locateDocument(reference: string) {
+    const parsed = need(
+      parseDocumentReference(reference),
+      "Document not found",
+    );
+    const location = need(
+      await this.db.get<{ project: string; tree: Role }>(
+        `DOCUMENT#${parsed.id}`,
+        "LOCATION",
+      ),
+      "Document not found",
+    );
+    if (location.value.tree !== parsed.tree)
+      throw new HttpError(404, "Document not found");
+    return { ...parsed, project: location.value.project };
+  }
+  async readPublicDocument(reference: string): Promise<Response> {
+    const location = await this.locateDocument(reference);
+    const pk = projectKey(location.project);
+    const current = need(
+      await this.db.get<Document>(pk, docKey(location.tree, location.id)),
+      "Document not found",
+    );
+    const project = await this.db.get<Project>(pk, "META");
+    if (current.value.public !== true || !project || project.value.deletedAt)
+      throw new HttpError(404, "Document not found");
+    const { id, tree, title, updatedAt, objectKey } = current.value;
+    return {
+      status: 200,
+      headers: {
+        "cache-control": "no-store",
+        "x-robots-tag": "noindex, nofollow",
+      },
+      // Public readers get the current page only: no storage keys, authors, history or project navigation.
+      body: {
+        id,
+        tree,
+        title,
+        updatedAt,
+        public: true,
+        content: await this.blobs.get(objectKey),
+      },
+    };
   }
   async validateItem(
     slug: string,

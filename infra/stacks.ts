@@ -237,6 +237,11 @@ export class AppStack extends Stack {
       integration,
       authorizer: new HttpIamAuthorizer(),
     });
+    api.addRoutes({
+      path: "/api/v1/public/documents/{reference}",
+      methods: [apigw.HttpMethod.GET],
+      integration,
+    });
     const mcpLogs = new logs.LogGroup(this, "McpLogs", {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.RETAIN,
@@ -334,7 +339,7 @@ export class AppStack extends Stack {
     });
     const routing = new cloudfront.Function(this, "SpaRouting", {
       code: cloudfront.FunctionCode.fromInline(
-        "function handler(event) { var r = event.request; if (r.uri === '/auth/callback') r.uri = '/index.html'; return r; }",
+        "function handler(event) { var r = event.request; if (r.uri === '/auth/callback' || /^\\/t\\/[^/]+$/.test(r.uri) || /^\\/d\\/[^/]+$/.test(r.uri)) r.uri = '/index.html'; return r; }",
       ),
     });
     const security = new cloudfront.ResponseHeadersPolicy(

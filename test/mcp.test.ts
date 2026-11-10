@@ -48,7 +48,7 @@ test("official MCP client initializes stateless HTTP, discovers complete typed t
     client = await connect(f);
   try {
     const tools = (await client.listTools()).tools;
-    assert.equal(tools.length, 30);
+    assert.equal(tools.length, 33);
     const openapi = JSON.parse(readFileSync("public/openapi.json", "utf8"));
     const expected = Object.values(openapi.paths)
       .flatMap((methods: any) =>
@@ -241,7 +241,7 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
         idempotencyKey: randomUUID(),
       });
       const args = { project: "ROOT", tree, documentId: page.id };
-      await call("create_document", {
+      const child = await call("create_document", {
         project: "ROOT",
         tree,
         input: { title: "Child", content: "Nested", parentId: page.id },
@@ -285,6 +285,47 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
       assert.equal(restored.content, "# First");
       assert.equal(restored.title, "Guide");
       assert.equal(restored.version, 3);
+      const reference = new URL(restored.url).pathname.slice(3);
+      assert.equal(
+        (await call("resolve_document_link", { reference })).id,
+        page.id,
+      );
+      await call("update_document", {
+        ...args,
+        patch: { public: true },
+        expectedVersion: 3,
+        agentName: "Publisher",
+      });
+      assert.equal(
+        (await call("get_public_document", { reference })).content,
+        "# First",
+      );
+      await call("delete_document", {
+        ...args,
+        documentId: child.id,
+        expectedVersion: 1,
+        agentName: "Cleaner",
+      });
+      await call("delete_document", {
+        ...args,
+        expectedVersion: 4,
+        agentName: "Cleaner",
+      });
+      assert.ok(
+        (
+          await client.callTool({
+            name: "get_public_document",
+            arguments: { reference },
+          })
+        ).isError,
+      );
+      assert.ok(
+        (await call("list_audit_events", { project: "ROOT" })).items.some(
+          (a: any) =>
+            a.action === "document.deleted" &&
+            a.attribution.agentName === "Cleaner",
+        ),
+      );
     }
     await call("set_member", {
       project: "ROOT",

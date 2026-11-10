@@ -33,7 +33,7 @@ For an existing Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to i
 - A single project-wide identifier sequence across all work item types, such as `ROOT-1`, `ROOT-2`, `ROOT-3`. An initiative may take `ROOT-1`, so the first task is not necessarily ordinal 1. IDs remain stable when work is moved between compatible parents.
 - A versioned REST-style JSON API with an [OpenAPI contract](public/openapi.json), pagination, required idempotency keys for creates, optimistic concurrency for edits, and mutation audit records.
 - Cognito authorization-code + PKCE login for people; IAM/SigV4 access for agents. Every operation also checks project membership.
-- A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with 30 tools and OAuth account linking for ChatGPT and compatible clients.
+- A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with 33 tools and OAuth account linking for ChatGPT and compatible clients.
 - CloudFront → API Gateway HTTP API → Lambda, private S3 origins for the web application, private S3 content storage, and on-demand DynamoDB tables for product records and OAuth grants.
 - GitHub Actions jobs hosted by CodeBuild; CDK deployment from `main` through a separate OIDC role.
 
@@ -99,3 +99,5 @@ There are no attachments, notifications, full-text search, external imports, pro
 The deployment runbook includes production smoke checks and recovery procedures. Browser access tokens stay in memory; reloading requires another sign-in redirect, and expired sessions require sign-in again. Cognito's shared invitation and MFA policy remains owned by `ejtbrown-cognito`.
 
 `.codex-resume` is ignored local session state. Never commit it or delete it as cleanup.
+
+Work items have stable `/t/ROOT-1` links. Documents have `/d/user-<id>`, `/d/maintainer-<id>`, or `/d/admin-<id>` links. Opening a private link preserves the destination through sign-in. Each page has a **Public** checkbox: checked pages expose only their current formatted content to anyone with the link, without a public directory or revision history. Unchecking it revokes anonymous access. **Delete page** asks for confirmation and requires child pages to be deleted first. Deletion removes the page and its links; immutable revision content remains retained privately for recovery.

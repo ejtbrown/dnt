@@ -82,10 +82,27 @@ export const docInput = z
   .object({
     title,
     content: markdown,
+    public: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Publish the current page at its direct link without authentication. Defaults to private; does not publish history.",
+      ),
     parentId: z.string().uuid().nullable().default(null),
   })
   .strict();
-export const docPatch = docInput.omit({ parentId: true }).partial().strict();
+export const docPatch = docInput
+  .omit({ parentId: true, public: true })
+  .partial()
+  .extend({
+    public: z
+      .boolean()
+      .optional()
+      .describe(
+        "True publishes the current page; false immediately revokes anonymous access. Requires the same tree permission as editing.",
+      ),
+  })
+  .strict();
 export const memberInput = z
   .object({ principal: principalSchema, role: z.enum(roles) })
   .strict();
@@ -129,6 +146,7 @@ export interface WorkItem {
   attribution: Attribution;
 }
 export interface Document {
+  public: boolean;
   id: string;
   project: string;
   tree: Role;
@@ -140,6 +158,14 @@ export interface Document {
   updatedAt: string;
   updatedBy: string;
   attribution: Attribution;
+}
+export interface PublicDocument {
+  id: string;
+  tree: Role;
+  title: string;
+  content: string;
+  updatedAt: string;
+  public: true;
 }
 export const commentInput = z
   .object({

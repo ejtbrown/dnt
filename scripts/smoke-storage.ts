@@ -288,6 +288,63 @@ try {
         .join(""),
       "# Attributed revision",
     );
+    const shared = await call("create_document", {
+      project: "ROOT",
+      tree: "Administrator",
+      input: {
+        title: "Sharing smoke",
+        content: "# Public smoke",
+        public: true,
+      },
+      idempotencyKey: randomUUID(),
+      agentName: "Publisher",
+    });
+    const reference = new URL(shared.url).pathname.slice(3);
+    assert.equal(
+      (await call("resolve_document_link", { reference })).id,
+      shared.id,
+    );
+    assert.equal(
+      (await request("GET", `/public/documents/${reference}`, undefined, ""))
+        .body.content,
+      "# Public smoke",
+    );
+    const sharedArgs = {
+      project: "ROOT",
+      tree: "Administrator",
+      documentId: shared.id,
+    };
+    await call("update_document", {
+      ...sharedArgs,
+      patch: { public: false },
+      expectedVersion: 1,
+      agentName: "Publisher",
+    });
+    assert.equal(
+      (await request("GET", `/public/documents/${reference}`, undefined, ""))
+        .status,
+      404,
+    );
+    await call("update_document", {
+      ...sharedArgs,
+      patch: { public: true },
+      expectedVersion: 2,
+      agentName: "Publisher",
+    });
+    await call("delete_document", {
+      ...sharedArgs,
+      expectedVersion: 3,
+      agentName: "Cleaner",
+    });
+    assert.equal(
+      (await request("GET", `/public/documents/${reference}`, undefined, ""))
+        .status,
+      404,
+    );
+    assert.equal((await request("GET", `/documents/${reference}`)).status, 404);
+    console.log(
+      "AWS direct-link/publication/deletion smoke passed with real DynamoDB and S3; anonymous reads revoked.",
+    );
     const audit = (await call("list_audit_events", { project: "ROOT" })).items;
     assert.ok(
       audit.some(

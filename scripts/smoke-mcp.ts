@@ -201,7 +201,7 @@ try {
   const anonymous = await connect();
   try {
     const tools = await anonymous.listTools();
-    assert.equal(tools.tools.length, 30);
+    assert.equal(tools.tools.length, 33);
     for (const tool of tools.tools)
       assert.equal(
         !!tool.inputSchema.properties?.agentName,

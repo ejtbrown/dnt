@@ -44,6 +44,7 @@ for (const key of ["username", "name", "email"])
 const item = object(
   {
     id: string,
+    url: { type: "string", format: "uri" },
     project: string,
     ordinal: { type: "integer", minimum: 1 },
     kind: { enum: kinds },
@@ -60,6 +61,7 @@ const item = object(
   },
   [
     "id",
+    "url",
     "project",
     "ordinal",
     "kind",
@@ -75,6 +77,8 @@ const item = object(
   ],
 );
 const document = object({
+  public: { type: "boolean" },
+  url: { type: "string", format: "uri" },
   id: { type: "string", format: "uuid" },
   project: string,
   tree: { enum: roles },
@@ -88,6 +92,15 @@ const document = object({
   attribution: ref("Attribution"),
 });
 const schemas: Record<string, unknown> = {
+  PublicDocument: object({
+    id: { type: "string", format: "uuid" },
+    tree: { enum: roles },
+    title: string,
+    content: string,
+    updatedAt: date,
+    public: { const: true },
+    url: { type: "string", format: "uri" },
+  }),
   Attribution: object(
     {
       principal: string,
@@ -463,6 +476,33 @@ route(
   { paginated: true },
 );
 route(
+  "/documents/{reference}",
+  "get",
+  "resolveDocumentLink",
+  "Resolve a direct document link with normal project/tree permissions",
+  "DocumentContent",
+);
+route(
+  "/public/documents/{reference}",
+  "get",
+  "getPublicDocument",
+  "Read only the current page by direct link; no authentication or listing; private/deleted/missing pages return 404",
+  "PublicDocument",
+);
+paths["/public/documents/{reference}"].get = {
+  ...(paths["/public/documents/{reference}"].get as object),
+  security: [],
+};
+route(
+  "/projects/{project}/docs/{tree}/{id}",
+  "delete",
+  "deleteDocument",
+  "Delete a page and revoke public access; same tree permission as editing; delete child pages first; retained revisions are inaccessible",
+  undefined,
+  undefined,
+  { version: true },
+);
+route(
   "/projects/{project}/docs/{tree}/{id}/compare",
   "get",
   "compareDocumentRevisions",
@@ -602,7 +642,7 @@ export const specification = {
     title: "dnt API",
     version: "0.1.0",
     description:
-      "Projects, documentation, and work. Bearer tokens use /api/v1; IAM SigV4 uses the regional API Gateway AgentApi endpoint /agent/v1 with the same relative paths. IDs share one sequence across initiatives, epics, and tasks. Lists are paginated; no delete/reparent for documentation or hard delete for work items in v1.",
+      "Projects, documentation, and work. Bearer tokens use /api/v1; IAM SigV4 uses the regional API Gateway AgentApi endpoint /agent/v1 with the same relative paths. IDs share one sequence across initiatives, epics, and tasks. Lists are paginated; documents have direct-access URLs and optional public sharing of current content; deletion requires a leaf page and revokes its link. No reparent for documentation or hard delete for work items in v1.",
   },
   servers: [
     {
