@@ -51,4 +51,18 @@ test("project administrators without dnt-admin can manage members but cannot cre
   await expect(
     page.getByRole("button", { name: "Delete ADMIN", exact: true }),
   ).toBeVisible();
+  // Home navigation must preserve the document that owns the in-memory token.
+  let navigations = 0;
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) navigations++;
+  });
+  await page.getByRole("link", { name: "dnt home", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Work board", exact: true }),
+  ).toBeVisible();
+  expect(navigations).toBe(0);
+  await expect(page.getByLabel("Project", { exact: true })).toHaveValue(
+    "ADMIN",
+  );
 });

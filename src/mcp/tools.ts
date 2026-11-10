@@ -479,6 +479,13 @@ export function createMcpServer(
       version: "0.3.0",
       title: "dnt — docs & tasks",
       websiteUrl: origin,
+      icons: [
+        {
+          src: `${origin}/brand/dnt-logo.png`,
+          mimeType: "image/png",
+          sizes: ["601x411"],
+        },
+      ],
     },
     {
       instructions:

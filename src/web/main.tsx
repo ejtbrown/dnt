@@ -96,6 +96,22 @@ function Dialog({
     </dialog>
   );
 }
+function Brand({
+  onHome,
+}: {
+  onHome?: React.MouseEventHandler<HTMLAnchorElement>;
+}) {
+  return (
+    <a href="/" className="brand" aria-label="dnt home" onClick={onHome}>
+      <img
+        src="/brand/dnt-hero.png"
+        alt="dnt — Docs ’n Tasks"
+        width={1082}
+        height={411}
+      />
+    </a>
+  );
+}
 function App() {
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
@@ -215,6 +231,27 @@ function App() {
       await refresh();
     });
   }
+  function goHome(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    if (
+      busy ||
+      (editDoc && !confirm("Discard unsaved page changes and return home?"))
+    )
+      return;
+    setTab("Board");
+    setSearch("");
+    setSelectedDoc(undefined);
+    setEditDoc(false);
+    setModal(null);
+  }
   function newItem() {
     setEditItem(undefined);
     setModal("item");
@@ -243,9 +280,7 @@ function App() {
   if (!ready)
     return (
       <div className="welcome">
-        <div className="brand">
-          dnt<span>docs & tasks</span>
-        </div>
+        <Brand />
         <p>Opening your workspace…</p>
         {message}
       </div>
@@ -253,9 +288,7 @@ function App() {
   if (!authed)
     return (
       <div className="welcome">
-        <div className="brand">
-          dnt<span>docs & tasks</span>
-        </div>
+        <Brand />
         <div className="eyebrow">A little less overhead.</div>
         <h1>
           Room to think.
@@ -276,9 +309,7 @@ function App() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <a href="/" className="brand">
-          dnt<span>docs & tasks</span>
-        </a>
+        <Brand onHome={goHome} />
         <div className="workspace-label">
           WORKSPACE <span className="tiny-dot" />
         </div>
@@ -406,7 +437,13 @@ function App() {
           {message}
           {!project ? (
             <div className="empty hero-empty">
-              <Layers size={36} />
+              <img
+                className="app-mark"
+                src="/brand/dnt-logo.png"
+                alt=""
+                width={601}
+                height={411}
+              />
               <h1>A home for your next idea.</h1>
               <p>
                 {me?.canCreateProject
