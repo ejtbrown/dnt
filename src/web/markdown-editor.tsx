@@ -14,13 +14,20 @@ export interface EditorProps {
   disabled?: boolean;
 }
 const colors = HighlightStyle.define([
-  { tag: tags.heading, color: "#075d79", fontWeight: "700" },
-  { tag: tags.strong, color: "#74358a", fontWeight: "700" },
-  { tag: tags.emphasis, color: "#74358a", fontStyle: "italic" },
-  { tag: [tags.link, tags.url], color: "#176c4c", textDecoration: "underline" },
-  { tag: [tags.monospace, tags.processingInstruction], color: "#9a3a14" },
-  { tag: [tags.meta, tags.punctuation], color: "#68718a" },
-  { tag: tags.quote, color: "#59637d", fontStyle: "italic" },
+  { tag: tags.heading, color: "var(--syntax-heading)", fontWeight: "700" },
+  { tag: tags.strong, color: "var(--syntax-emphasis)", fontWeight: "700" },
+  { tag: tags.emphasis, color: "var(--syntax-emphasis)", fontStyle: "italic" },
+  {
+    tag: [tags.link, tags.url],
+    color: "var(--syntax-link)",
+    textDecoration: "underline",
+  },
+  {
+    tag: [tags.monospace, tags.processingInstruction],
+    color: "var(--syntax-code)",
+  },
+  { tag: [tags.meta, tags.punctuation], color: "var(--syntax-meta)" },
+  { tag: tags.quote, color: "var(--syntax-quote)", fontStyle: "italic" },
 ]);
 export default function MarkdownEditor(props: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
