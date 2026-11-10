@@ -3,7 +3,12 @@ import type { Directory, DirectoryUser, DirectoryGroup } from "./model.js";
 export class MemoryDirectory implements Directory {
   accounts = new Map<string, DirectoryUser>();
   groups = new Map<string, DirectoryGroup & { users: Set<string> }>();
-  constructor(private permissive = false) {
+  readonly administrators: Set<string>;
+  constructor(
+    private permissive = false,
+    adminPrincipals: string[] = [],
+  ) {
+    this.administrators = new Set(adminPrincipals);
     for (const [id, name] of [
       ["local-developer", "Local Developer"],
       ["teammate", "Teammate"],
@@ -31,6 +36,13 @@ export class MemoryDirectory implements Directory {
         status: "CONFIRMED",
       });
     return this.accounts.get(principal);
+  }
+  async isDntAdmin(principal: string) {
+    return (
+      principal.startsWith("cognito:") &&
+      this.administrators.has(principal) &&
+      !!(await this.resolve(principal))?.enabled
+    );
   }
   async users(search: string, limit: number, cursor?: string) {
     const rows = [...this.accounts.values()].filter(

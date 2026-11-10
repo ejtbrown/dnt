@@ -78,7 +78,7 @@ test("human and agent routes require different authenticated mechanisms", () => 
     Runtime: "nodejs24.x",
     Environment: {
       Variables: Match.objectLike({
-        PROJECT_CREATORS: JSON.stringify(config.projectCreators),
+        COGNITO_POOL_ID: Match.anyValue(),
       }),
     },
   });
@@ -329,4 +329,24 @@ test("Cognito reconciliation is durable, serial, filtered, and isolated from HTT
       prefix === "GroupWorker",
     );
   }
+});
+
+test("global administration is read from Cognito and no runtime creator allowlist remains", () => {
+  const policies = serviceTemplate.findResources("AWS::IAM::Policy");
+  for (const prefix of ["ApiFunction", "McpFunction", "GroupWorker"]) {
+    const policy = Object.entries(policies).find(([id]) =>
+      id.startsWith(prefix),
+    )![1] as any;
+    const actions = policy.Properties.PolicyDocument.Statement.flatMap(
+      (s: any) => [s.Action].flat(),
+    );
+    assert.equal(
+      actions.includes("cognito-idp:AdminListGroupsForUser"),
+      prefix !== "GroupWorker",
+    );
+  }
+  for (const fn of Object.values(
+    serviceTemplate.findResources("AWS::Lambda::Function"),
+  ) as any[])
+    assert.ok(!fn.Properties.Environment?.Variables?.PROJECT_CREATORS);
 });

@@ -51,8 +51,8 @@ class LocalBlobs implements Blobs {
 }
 const db = new LocalStore();
 const principal = "cognito:local-developer";
-const directory = new MemoryDirectory();
-const service = new Service(db, new LocalBlobs(), [principal], directory);
+const directory = new MemoryDirectory(false, [principal]);
+const service = new Service(db, new LocalBlobs(), directory);
 // Local identity exists only in this loopback development server, never in Lambda.
 const vite = await createViteServer({
   server: { middlewareMode: true },

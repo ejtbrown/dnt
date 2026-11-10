@@ -103,3 +103,7 @@ Project creation queues `dnt-proj-<SLUG>-admin`, `dnt-proj-<SLUG>-maintainer`, a
 `delete_project` requires the current project version. It immediately removes access and hides the project from listings, then deletes its three managed groups asynchronously. Data and audit records remain retained for recovery; the slug stays reserved. Former project administrators can continue calling `get_project_groups` and `reconcile_project_groups` after deletion to verify or retry cleanup. Wait for status `deleted`. There is no self-service project restoration or hard purge.
 
 Use `list_projects` with `includeDeleted: true` to discover deleted projects you administered and resume cleanup checks after reconnecting. Deleted entries include `deletedAt`; they cannot be opened for content. The web sidebar offers the same list under Deleted projects.
+
+## Global administration
+
+`create_project` requires current membership in the shared Cognito `dnt-admin` group. `delete_project` requires that membership plus Administrator access to the target project. `get_identity` exposes `isDntAdmin` and `canCreateProject` for discovery. These checks apply to every MCP/API call, including creation retries, and fail closed if Cognito is unavailable. They do not trust token group claims. Existing connections reflect group removal without a token refresh; IAM principals cannot create or delete projects. Project group synchronization never changes the global `dnt-admin` group. Identity operators manage this global membership in Cognito.

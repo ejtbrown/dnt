@@ -860,11 +860,15 @@ function App() {
                     revision={JSON.stringify(
                       members.map((m) => [m.principal, m.version]),
                     )}
-                    onDelete={async () => {
-                      setDeletedProject(slug);
-                      setTab("Board");
-                      await loadProjects();
-                    }}
+                    onDelete={
+                      me?.isDntAdmin
+                        ? async () => {
+                            setDeletedProject(slug);
+                            setTab("Board");
+                            await loadProjects();
+                          }
+                        : undefined
+                    }
                   />
                   <div className="member-list">
                     {members.map((member) => (

@@ -154,7 +154,11 @@ const schemas: Record<string, unknown> = {
     properties: { ...document.properties, content: string },
     required: [...document.required, "content"],
   },
-  Me: object({ principal: string, canCreateProject: { type: "boolean" } }),
+  Me: object({
+    principal: string,
+    canCreateProject: { type: "boolean" },
+    isDntAdmin: { type: "boolean" },
+  }),
   Audit: object(
     {
       action: string,
@@ -271,7 +275,7 @@ function route(
         "Include deleted projects only for their former administrators to monitor/retry group cleanup.",
     });
   const responses: Record<string, unknown> = {};
-  for (const code of [400, 401, 403, 404, 409, 412, 413, 428, 429, 500])
+  for (const code of [400, 401, 403, 404, 409, 412, 413, 428, 429, 500, 503])
     responses[code] = {
       description: {
         400: "Invalid request",
@@ -284,6 +288,7 @@ function route(
         428: "Missing If-Match",
         429: "Throttled; back off",
         500: "Internal error",
+        503: "Cannot verify current administration-group membership",
       }[code],
       content: json(ref("Error")),
     };
@@ -339,7 +344,7 @@ route(
   "/projects",
   "post",
   "createProject",
-  "Create a project; configured operators only",
+  "Create a project; current dnt-admin Cognito group membership required",
   "Project",
   "ProjectInput",
 );
@@ -488,7 +493,7 @@ route(
   "/projects/{project}",
   "delete",
   "deleteProject",
-  "Revoke project access and delete managed Cognito groups asynchronously; records retained, slug reserved",
+  "Revoke project access and delete managed Cognito groups asynchronously; dnt-admin membership and project Administrator required; records retained, slug reserved",
   "Project",
   undefined,
   { version: true, status: 202 },

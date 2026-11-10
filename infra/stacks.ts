@@ -123,7 +123,6 @@ export class AppStack extends Stack {
         COGNITO_ISSUER: issuer,
         COGNITO_CLIENT_ID: clientId.valueAsString,
         COGNITO_POOL_ID: poolId.valueAsString,
-        PROJECT_CREATORS: JSON.stringify(config.projectCreators),
         AGENT_ROLES: JSON.stringify(config.agentRoles),
       },
     });
@@ -131,6 +130,7 @@ export class AppStack extends Stack {
       new iam.PolicyStatement({
         actions: [
           "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminListGroupsForUser",
           "cognito-idp:ListUsers",
           "cognito-idp:GetGroup",
           "cognito-idp:ListUsersInGroup",
@@ -259,7 +259,6 @@ export class AppStack extends Stack {
         MCP_COGNITO_CLIENT_ID: config.mcpCognitoClientId,
         AUTH_DOMAIN: config.authDomain,
         MCP_CLIENT_METADATA_URLS: JSON.stringify(config.mcpClientMetadataUrls),
-        PROJECT_CREATORS: JSON.stringify(config.projectCreators),
       },
     });
     data.table.grantReadWriteData(mcp);
@@ -270,6 +269,7 @@ export class AppStack extends Stack {
       new iam.PolicyStatement({
         actions: [
           "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminListGroupsForUser",
           "cognito-idp:ListUsers",
           "cognito-idp:GetGroup",
           "cognito-idp:ListUsersInGroup",

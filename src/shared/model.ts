@@ -173,4 +173,5 @@ export interface Page<T> {
 export interface Me {
   principal: string;
   canCreateProject: boolean;
+  isDntAdmin: boolean;
 }

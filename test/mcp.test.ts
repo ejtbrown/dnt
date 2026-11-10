@@ -485,3 +485,55 @@ test("HTTP validates Origin, bearer tokens, protocol versions and content negoti
   assert.equal(notification.status, 202);
   assert.equal(await notification.text(), "");
 });
+
+test("an existing MCP session loses project creation and deletion when dnt-admin membership is removed", async () => {
+  const f = fixture(),
+    client = await connect(f, (await mint(f)).access_token);
+  try {
+    const input = {
+      input: { slug: "ROOT", name: "Root" },
+      idempotencyKey: randomUUID(),
+      agentName: "Admin Agent",
+    };
+    assert.ok(
+      !(await client.callTool({ name: "create_project", arguments: input }))
+        .isError,
+    );
+    f.directory.administrators.delete(admin);
+    const identity = await client.callTool({
+      name: "get_identity",
+      arguments: {},
+    });
+    assert.equal((identity.structuredContent as any).result.isDntAdmin, false);
+    assert.equal(
+      (await client.callTool({ name: "create_project", arguments: input }))
+        .isError,
+      true,
+    );
+    const denied = await client.callTool({
+      name: "delete_project",
+      arguments: {
+        project: "ROOT",
+        expectedVersion: 1,
+        agentName: "Admin Agent",
+      },
+    });
+    assert.equal(denied.isError, true);
+    assert.match(JSON.stringify(denied.content), /dnt-admin/);
+    f.directory.administrators.add(admin);
+    assert.ok(
+      !(
+        await client.callTool({
+          name: "delete_project",
+          arguments: {
+            project: "ROOT",
+            expectedVersion: 1,
+            agentName: "Admin Agent",
+          },
+        })
+      ).isError,
+    );
+  } finally {
+    await client.close();
+  }
+});

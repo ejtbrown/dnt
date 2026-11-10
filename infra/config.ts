@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { principalSchema } from "../src/shared/model.js";
 export const configSchema = z.object({
   account: z.string().regex(/^\d{12}$/),
   region: z.string().regex(/^[a-z]{2}-[a-z]+-\d$/),
@@ -21,7 +20,6 @@ export const configSchema = z.object({
   mcpCognitoClientId: z.string(),
   mcpClientMetadataUrls: z.array(z.url().startsWith("https://")).min(1),
   authDomain: z.url().startsWith("https://"),
-  projectCreators: z.array(principalSchema).min(1),
   agentRoles: z.array(
     z.string().regex(/^arn:aws:iam::\d{12}:role\/[\w+=,.@/-]+$/),
   ),

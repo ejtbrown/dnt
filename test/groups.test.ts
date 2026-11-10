@@ -1,3 +1,4 @@
+import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -12,14 +13,8 @@ const admin = "cognito:local-developer",
   origin = "https://dnt.example.com";
 async function fixture() {
   const db = new MemoryStore(),
-    directory = new MemoryDirectory();
-  const service = new Service(
-    db,
-    new MemoryBlobs(),
-    [admin],
-    directory,
-    origin,
-  );
+    directory = new MemoryDirectory(false, [admin]);
+  const service = new Service(db, new MemoryBlobs(), directory, origin);
   const call = (
     method: string,
     path: string,
@@ -447,4 +442,150 @@ test("a recreated Cognito username does not inherit the deleted account's group 
     f.directory.groups.get(groupName("ROOT", "User"))!.users.size,
     0,
   );
+});
+
+test("current global membership is required for create/replay/delete while project administration remains independent", async () => {
+  const f = await fixture();
+  await f.call("POST", "/projects/ROOT/members", {
+    principal: member,
+    role: "Administrator",
+  });
+  const current = (await f.call("GET", "/projects/ROOT")).body;
+  assert.equal(
+    (await f.call("GET", "/me", undefined, member)).body.isDntAdmin,
+    false,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "DELETE",
+        "/projects/ROOT",
+        undefined,
+        member,
+        current.version,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await f.call("POST", "/projects", { slug: "NO", name: "Denied" }, member))
+      .status,
+    403,
+  );
+  const key = randomUUID(),
+    input = { slug: "NEW", name: "New" };
+  assert.equal(
+    (await f.call("POST", "/projects", input, admin, undefined, key)).status,
+    201,
+  );
+  f.directory.administrators.delete(admin);
+  assert.equal((await f.call("GET", "/me")).body.canCreateProject, false);
+  assert.equal(
+    (await f.call("POST", "/projects", input, admin, undefined, key)).status,
+    403,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "DELETE",
+        "/projects/ROOT",
+        undefined,
+        admin,
+        current.version,
+      )
+    ).status,
+    403,
+  );
+  f.directory.administrators.add(member);
+  assert.equal(
+    (await f.call("GET", "/me", undefined, member)).body.canCreateProject,
+    true,
+  );
+  assert.equal(
+    (await f.call("DELETE", "/projects/NEW", undefined, member, 1)).status,
+    404,
+    "global group does not bypass project membership",
+  );
+  assert.equal(
+    (
+      await f.call(
+        "DELETE",
+        "/projects/ROOT",
+        undefined,
+        member,
+        current.version,
+      )
+    ).status,
+    202,
+  );
+});
+test("directory failures fail closed and cannot enqueue project creation or deletion", async () => {
+  const f = await fixture();
+  const current = (await f.call("GET", "/projects/ROOT")).body;
+  const before = f.db.rows.size;
+  f.directory.isDntAdmin = async () => {
+    throw new Error("directory unavailable");
+  };
+  assert.equal(
+    (await f.call("POST", "/projects", { slug: "NO", name: "Denied" })).status,
+    503,
+  );
+  assert.equal(
+    (
+      await f.call(
+        "DELETE",
+        "/projects/ROOT",
+        undefined,
+        admin,
+        current.version,
+      )
+    ).status,
+    503,
+  );
+  assert.equal(f.db.rows.size, before);
+  assert.equal((await f.call("GET", "/projects/ROOT")).status, 200);
+});
+test("Cognito administration checks paginate exact group names, reject disabled and IAM identities, and do not cache grants", async () => {
+  const sub = "11111111-1111-4111-8111-111111111111";
+  let enabled = true,
+    granted = true,
+    listings = 0;
+  const client = new CognitoIdentityProviderClient({ region: "us-east-2" });
+  Object.assign(client, {
+    send: async (command: any) => {
+      if (command.constructor.name === "AdminGetUserCommand")
+        return {
+          Username: "owner",
+          Enabled: enabled,
+          UserAttributes: [{ Name: "sub", Value: sub }],
+        };
+      assert.equal(command.constructor.name, "AdminListGroupsForUserCommand");
+      assert.equal(command.input.Username, "owner");
+      assert.equal(command.input.UserPoolId, "pool");
+      listings++;
+      return command.input.NextToken
+        ? { Groups: granted ? [{ GroupName: "dnt-admin" }] : [] }
+        : {
+            Groups: [
+              { GroupName: "dnt-admin-other" },
+              { GroupName: "dnt-proj-ROOT-admin" },
+            ],
+            NextToken: "second",
+          };
+    },
+  });
+  const directory = new CognitoDirectory("pool", client);
+  assert.equal(await directory.isDntAdmin(`cognito:${sub}`), true);
+  assert.equal(listings, 2);
+  granted = false;
+  assert.equal(await directory.isDntAdmin(`cognito:${sub}`), false);
+  assert.equal(listings, 4);
+  enabled = false;
+  granted = true;
+  assert.equal(await directory.isDntAdmin(`cognito:${sub}`), false);
+  assert.equal(
+    await directory.isDntAdmin("iam:arn:aws:iam::123456789012:role/admin"),
+    false,
+  );
+  assert.equal(listings, 4);
 });

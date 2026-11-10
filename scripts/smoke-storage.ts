@@ -1,3 +1,4 @@
+import { MemoryDirectory } from "../src/groups/memory.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
@@ -73,7 +74,7 @@ const service = new Service(
     },
     get: (key) => blobs.get(namespace + key),
   },
-  [admin],
+  new MemoryDirectory(true, [admin]),
 );
 async function request(
   method: string,

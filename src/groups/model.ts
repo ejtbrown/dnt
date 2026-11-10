@@ -1,4 +1,5 @@
 import { roles, slugSchema, type Role, type Page } from "../shared/model.js";
+export const administrationGroup = "dnt-admin";
 export const groupSuffix: Record<Role, string> = {
   Administrator: "admin",
   Maintainer: "maintainer",
@@ -37,6 +38,7 @@ export interface DirectoryGroup {
   roleArn?: string;
 }
 export interface Directory {
+  isDntAdmin(principal: string): Promise<boolean>;
   resolve(principal: string): Promise<DirectoryUser | undefined>;
   users(
     search: string,

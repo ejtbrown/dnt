@@ -92,8 +92,7 @@ export class Service {
   constructor(
     readonly db: Store,
     readonly blobs: Blobs,
-    readonly projectCreators: string[],
-    readonly directory?: Directory,
+    readonly directory: Directory,
     readonly origin = "http://localhost:5173",
   ) {}
   async handle(req: Request): Promise<Response> {
@@ -133,8 +132,30 @@ export class Service {
     }
     throw new Error("Unreachable");
   }
+  async isDntAdmin(principal: string) {
+    try {
+      return await this.directory.isDntAdmin(principal);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          error: error instanceof Error ? error.name : "DirectoryError",
+        }),
+      );
+      throw new HttpError(
+        503,
+        "Cannot verify dnt-admin membership. Try again.",
+      );
+    }
+  }
+  async requireDntAdmin(principal: string) {
+    if (!(await this.isDntAdmin(principal)))
+      throw new HttpError(
+        403,
+        "Membership in the dnt-admin Cognito group is required to create or delete projects",
+      );
+  }
   async memberDetails(principal: string) {
-    if (!principal.startsWith("cognito:") || !this.directory) return {};
+    if (!principal.startsWith("cognito:")) return {};
     const user = await this.directory.resolve(principal);
     if (!user)
       throw new HttpError(
@@ -314,14 +335,17 @@ export class Service {
       throw new HttpError(404, "Not found");
     const [resource, slug, child, id, action, revision] = path;
     const method = req.method;
-    if (resource === "me" && path.length === 1 && method === "GET")
+    if (resource === "me" && path.length === 1 && method === "GET") {
+      const isDntAdmin = await this.isDntAdmin(req.principal);
       return {
         status: 200,
         body: {
           principal: req.principal,
-          canCreateProject: this.projectCreators.includes(req.principal),
+          isDntAdmin,
+          canCreateProject: isDntAdmin,
         },
       };
+    }
     if (resource !== "projects") throw new HttpError(404, "Not found");
     if (!slug) {
       if (method === "GET") {
@@ -355,11 +379,7 @@ export class Service {
         };
       }
       if (method !== "POST") throw new HttpError(405, "Method not allowed");
-      if (!this.projectCreators.includes(req.principal))
-        throw new HttpError(
-          403,
-          "Project creation is restricted to configured operators",
-        );
+      await this.requireDntAdmin(req.principal);
       const input = projectInput.parse(req.body);
       return this.mutate(req, undefined, undefined, async () => {
         const pk = projectKey(input.slug);
@@ -416,8 +436,6 @@ export class Service {
           action: "groups.reconciled",
           target: slug,
         }));
-      if (!this.directory)
-        throw new HttpError(503, "User directory is unavailable");
       if (child === "groups" && !id && method === "GET") {
         const sync = await this.db.get<GroupSync>(pk, syncKey(slug).sk);
         const groups = await Promise.all(
@@ -478,6 +496,7 @@ export class Service {
     if (project.value.deletedAt) throw new HttpError(404, "Project not found");
     if (!child && method === "DELETE") {
       this.requireRole(membership, "Administrator");
+      await this.requireDntAdmin(req.principal);
       this.expected(req, project);
       return this.mutate(req, membership, project, async () => {
         const value = {
