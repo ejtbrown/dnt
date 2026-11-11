@@ -246,7 +246,7 @@ export const operations: Operation[] = [
     operationId: "createWorkItem",
     method: "POST",
     description:
-      "Use this to create an Initiative, Epic, or Task. Initiatives have no parent; Epics require an Initiative; Tasks require an Epic in the same project. Maintainer is required for all work item creation. Assignment must reference a project member.",
+      "Use this to create an Initiative, Epic, or Task. Initiatives have no parent; Epics require an Initiative; Tasks require an Epic in the same project. Maintainer is required for all work item creation. Assignment must reference a project member. Optional input.ordinal preserves an exact source ticket number; collisions fail and the automatic counter never decreases. Dependencies and relatedTasks may reference any work item kind. Epic/Initiative states are derived from descendant Tasks, never assigned.",
     schema: z.object({ project, input: itemInput, idempotencyKey }).strict(),
     path: itemPath,
     body: (a) => a.input,
@@ -265,7 +265,7 @@ export const operations: Operation[] = [
     operationId: "updateWorkItem",
     method: "PATCH",
     description:
-      "Use this to edit title/description, assign or unassign, move to a compatible parent, or move a Task among Concept, Implement, Needs Attention, Review, Done, and Cancelled. kind is immutable. Requires the latest version.",
+      "Use this to edit title/description, assign or unassign, move to a compatible parent, or move a Task among Concept, Implement, Needs Attention, Review, Done, and Cancelled. Dependencies and relatedTasks support all work item kinds. Epic/Initiative states are read-only rollups of descendant Tasks. kind and ordinal are immutable. Requires the latest version.",
     schema: z
       .object({ project, id, patch: itemPatch, expectedVersion })
       .strict(),
@@ -528,12 +528,23 @@ export const operations: Operation[] = [
     method: "GET",
     description:
       "Read compact project changes in sequence order, including tasks, documents, comments, reactions and deletion tombstones. Current project membership required. Follow nextCursor to drain a fixed watermark; persist checkpoint only after processing all pages and reuse it as cursor on the next poll. since is optional only for the initial window. Check baselineRequired and coverage; historical events before feed activation are not invented. Treat events as hints and fetch current authorized content before acting.",
-    schema: z.object({
-      project,
-      limit: pagination.limit,
-      cursor: z.string().max(4096).optional().describe("Opaque nextCursor or drained checkpoint; pass unchanged."),
-      since: z.iso.datetime({ offset: true }).optional().describe("Optional initial ISO timestamp; cannot be combined with cursor."),
-    }).strict(),
+    schema: z
+      .object({
+        project,
+        limit: pagination.limit,
+        cursor: z
+          .string()
+          .max(4096)
+          .optional()
+          .describe("Opaque nextCursor or drained checkpoint; pass unchanged."),
+        since: z.iso
+          .datetime({ offset: true })
+          .optional()
+          .describe(
+            "Optional initial ISO timestamp; cannot be combined with cursor.",
+          ),
+      })
+      .strict(),
     path: (a) => `${projectPath(a)}/changes`,
   },
   {

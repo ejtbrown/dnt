@@ -84,7 +84,7 @@ test("task relationships, immutable history, threaded decisions and read-only us
   });
   await page.goto(`/t/${task.id}`);
   await page.getByLabel("Due date (optional)").fill("2026-12-31");
-  await page.getByLabel("Depends on tasks").fill(upstream.id);
+  await page.getByLabel("Depends on work items").fill(upstream.id);
   await page
     .getByRole("combobox", { name: "State", exact: true })
     .selectOption("Cancelled");
@@ -153,6 +153,20 @@ test("task relationships, immutable history, threaded decisions and read-only us
   await expect(page.locator(".task-comment").first()).toContainText(
     "Decision: changed scope",
   );
+  await page.goto(`/t/${epic.id}`);
+  await expect(
+    page.getByText("State: Implement (derived from descendant Tasks)"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "State", exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel("Related work items").fill(initiative.id);
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.goto(`/t/${epic.id}`);
+  await expect(page.getByLabel("Related work items")).toHaveValue(
+    initiative.id,
+  );
+  await page.goto(`/t/${task.id}`);
   principal = "cognito:reader";
   await page.reload();
   await expect(page.getByLabel("Due date (optional)")).toBeDisabled();

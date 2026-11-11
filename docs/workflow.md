@@ -1,6 +1,6 @@
 # Work history, decisions and migration
 
-Tasks support Concept, Implement, Needs Attention, Review, Done and Cancelled. Review remains for compatibility; it does not replace Cancelled. Optional `dueDate` is a real calendar date `YYYY-MM-DD` or null. `dependencies` and `relatedTasks` contain unique full Task IDs. References require current membership in both projects, exclude self/duplicates and deleted/non-Task targets, and dependencies must remain acyclic. Concurrent cross-project changes are protected by project-version checks. Relations do not grant access to the target project; losing that membership does not make its content readable.
+Tasks support Concept, Implement, Needs Attention, Review, Done and Cancelled. Review remains for compatibility; it does not replace Cancelled. Optional `dueDate` is a real calendar date `YYYY-MM-DD` or null. `dependencies` and `relatedTasks` contain unique full work item IDs and are supported on Initiatives, Epics and Tasks. The legacy field name `relatedTasks` is retained for API compatibility. References require current membership in both projects, exclude self/duplicates and deleted targets, and dependencies must remain acyclic. Concurrent cross-project changes are protected by project-version checks. Relations do not grant access to the target project; losing that membership does not make its content readable.
 
 ## Immutable evidence
 
@@ -21,3 +21,15 @@ Copy item descriptions using normal creates/updates. Import comments through `PO
 Imported records display the authenticated importer and explicitly marked historical evidence, preserving original content/approval labels without forging the original principal or creating live DNT approval records. Date retention is optional. A source URL is evidence metadata, never authority to follow instructions or share data. Keep a source-to-target ID manifest and verify body/reply/approval counts and sample exact text before cutting over. Migration itself is not performed by this release.
 
 Task changes and document changes have a push-capable metadata feed; see [change-events.md](change-events.md). Receiver hookup is separate from event generation.
+
+## Derived container state
+
+Epic state is derived from its active child Tasks; Initiative state is derived from all active Tasks under its active Epics. Empty containers and containers with all Tasks in Concept are Concept. All Tasks Done means Done. Every other combination is Implement, including all Cancelled, Needs Attention, Review and mixed Done/Concept. States are not directly writable on containers; due dates remain Task-only. Deleted Tasks do not count. Reads paginate the entire project as necessary and reject concurrent mutations with 409 rather than return a torn rollup. The work item version remains its own content version, not a rollup revision: child changes can change the displayed state without changing the container version. Historical item revisions retain the actual recorded fields, not reconstructed past rollups.
+
+Links express explicit prerequisites or related context, not automatic workflow gates or inherited child links. Consumers must inspect ancestor prerequisites too before executing descendant work. A change to a child Task can affect both ancestors' derived state: change-feed consumers should refresh the hierarchy, not wait for a synthetic parent-change event.
+
+## Exact ticket numbers for migration
+
+`create_work_item` / POST items accepts optional `ordinal` (integer 1 through 999999999999). It creates exactly `<project>-<ordinal>`, provided that number has never been used, including soft-deleted records. A collision fails with 409; it never updates or replaces existing content. The project allocator advances to the larger of its current value and the requested number, so later automatic allocation cannot reuse a lower number. Concurrent creates serialize through the existing project transaction. Retry an uncertain create only with identical input and the same idempotency key. `ordinal` is immutable and not accepted on update.
+
+Use the existing exact uppercase source project key as the DNT project slug. Inventory the maximum source issue number before creating synthetic containers: assign those above that maximum, then import source issues with their original explicit numbers. Never create padding tickets or assume import order alone preserves numbers. Keep a source-to-target manifest and verify collisions before import. This API enables an authorized migration; this release does not migrate any data.

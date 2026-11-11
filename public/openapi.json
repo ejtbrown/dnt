@@ -7741,6 +7741,12 @@
               "Task"
             ]
           },
+          "ordinal": {
+            "description": "Optional exact project ticket number for migration. Collisions fail; numbers are never reused. Omit for automatic allocation.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 999999999999
+          },
           "title": {
             "type": "string",
             "minLength": 1,

@@ -826,6 +826,12 @@ function App() {
                           <Layers size={17} />
                           <span className="item-id">{initiative.id}</span>
                           <strong>{initiative.title}</strong>
+                          <span
+                            className={`state-pill ${stateClass(initiative.state ?? "Concept")}`}
+                            title="Derived from descendant Tasks"
+                          >
+                            {initiative.state ?? "Concept"}
+                          </span>
                           <button
                             className="quiet"
                             onClick={(e) => {
@@ -844,6 +850,12 @@ function App() {
                                 <ListTree size={16} />
                                 <span className="item-id">{epic.id}</span>
                                 <strong>{epic.title}</strong>
+                                <span
+                                  className={`state-pill ${stateClass(epic.state ?? "Concept")}`}
+                                  title="Derived from descendant Tasks"
+                                >
+                                  {epic.state ?? "Concept"}
+                                </span>
                                 <button
                                   className="quiet"
                                   onClick={(e) => {
@@ -1536,13 +1548,17 @@ function ItemForm({
       ? {
           state,
           dueDate: dueDate || null,
-          ...(!initial || JSON.stringify(taskIds(dependencies)) !== JSON.stringify(initial.dependencies ?? [])
-            ? { dependencies: taskIds(dependencies) }
-            : {}),
-          ...(!initial || JSON.stringify(taskIds(relatedTasks)) !== JSON.stringify(initial.relatedTasks ?? [])
-            ? { relatedTasks: taskIds(relatedTasks) }
-            : {}),
         }
+      : {}),
+    ...(!initial ||
+    JSON.stringify(taskIds(dependencies)) !==
+      JSON.stringify(initial.dependencies ?? [])
+      ? { dependencies: taskIds(dependencies) }
+      : {}),
+    ...(!initial ||
+    JSON.stringify(taskIds(relatedTasks)) !==
+      JSON.stringify(initial.relatedTasks ?? [])
+      ? { relatedTasks: taskIds(relatedTasks) }
       : {}),
     assignee: assignee || null,
   };
@@ -1576,6 +1592,12 @@ function ItemForm({
                 ))}
             </select>
           </label>
+          {kind !== "Task" && initial && (
+            <p>
+              State: {initial.state ?? "Concept"} (derived from descendant
+              Tasks)
+            </p>
+          )}
           {kind === "Task" && (
             <label>
               State
@@ -1661,8 +1683,8 @@ function ItemForm({
             placeholder="cognito:<sub> or iam:<role ARN>"
           />
         </label>
-        {kind === "Task" && (
-          <section aria-label="Task scheduling and links">
+        <section aria-label="Work item scheduling and links">
+          {kind === "Task" && (
             <label>
               Due date (optional)
               <input
@@ -1671,57 +1693,56 @@ function ItemForm({
                 onChange={(e) => setDueDate(e.target.value)}
               />
             </label>
-            <label>
-              Depends on tasks
-              <input
-                value={dependencies}
-                onChange={(e) => setDependencies(e.target.value)}
-                placeholder="ROOT-3, PT-7"
-                list="task-link-options"
-              />
-            </label>
-            <small>
-              Enter full task IDs, separated by commas. A dependency must finish
-              before this task can proceed.
-            </small>
-            <label>
-              Related tasks
-              <input
-                value={relatedTasks}
-                onChange={(e) => setRelatedTasks(e.target.value)}
-                placeholder="ROOT-4"
-                list="task-link-options"
-              />
-            </label>
-            <small>
-              Related tasks provide context, not a blocking relationship.
-            </small>
-            <datalist id="task-link-options">
-              {items
-                .filter((i) => i.kind === "Task" && i.id !== initial?.id)
-                .map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.title}
-                  </option>
-                ))}
-            </datalist>
-            {[...taskIds(dependencies), ...taskIds(relatedTasks)].length >
-              0 && (
-              <p className="task-links">
-                {[
-                  ...new Set([
-                    ...taskIds(dependencies),
-                    ...taskIds(relatedTasks),
-                  ]),
-                ].map((id) => (
-                  <a key={id} href={itemLink(id)}>
-                    {id}
-                  </a>
-                ))}
-              </p>
-            )}
-          </section>
-        )}
+          )}
+          <label>
+            Depends on work items
+            <input
+              value={dependencies}
+              onChange={(e) => setDependencies(e.target.value)}
+              placeholder="ROOT-3, PT-7"
+              list="task-link-options"
+            />
+          </label>
+          <small>
+            Enter full work item IDs, separated by commas. Dependencies express
+            prerequisites; check their current state before proceeding.
+          </small>
+          <label>
+            Related work items
+            <input
+              value={relatedTasks}
+              onChange={(e) => setRelatedTasks(e.target.value)}
+              placeholder="ROOT-4"
+              list="task-link-options"
+            />
+          </label>
+          <small>
+            Related work items provide context, not a blocking relationship.
+          </small>
+          <datalist id="task-link-options">
+            {items
+              .filter((i) => i.id !== initial?.id)
+              .map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.title}
+                </option>
+              ))}
+          </datalist>
+          {[...taskIds(dependencies), ...taskIds(relatedTasks)].length > 0 && (
+            <p className="task-links">
+              {[
+                ...new Set([
+                  ...taskIds(dependencies),
+                  ...taskIds(relatedTasks),
+                ]),
+              ].map((id) => (
+                <a key={id} href={itemLink(id)}>
+                  {id}
+                </a>
+              ))}
+            </p>
+          )}
+        </section>
         <div className="form-actions">
           <button
             className="primary"
