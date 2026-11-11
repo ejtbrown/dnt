@@ -660,7 +660,7 @@ export const specification = {
         scheme: "bearer",
         bearerFormat: "Cognito access token",
         description:
-          "dnt app client; token_use=access and openid scope required",
+          "dnt-browser app client; token_use=access and aws.cognito.signin.user.admin scope required",
       },
       sigv4: {
         type: "apiKey",
