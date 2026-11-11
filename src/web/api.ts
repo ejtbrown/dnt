@@ -25,16 +25,26 @@ export async function initialize() {
         query.get("error_description") ?? "Sign-in was unsuccessful",
       );
     if (!query.get("code")) throw new Error("Missing authorization code");
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: config.clientId!,
+      code: query.get("code")!,
+      redirect_uri: `${location.origin}/auth/callback`,
+      code_verifier: verifier,
+    }).toString();
+    const bodyHash = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)),
+      ),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
     const result = await fetch(`${config.authDomain}/oauth2/token`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        client_id: config.clientId!,
-        code: query.get("code")!,
-        redirect_uri: `${location.origin}/auth/callback`,
-        code_verifier: verifier,
-      }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-amz-content-sha256": bodyHash,
+      },
+      body,
     });
     if (!result.ok)
       throw new Error("Could not complete sign-in. Please try again.");
@@ -42,7 +52,7 @@ export async function initialize() {
     token = tokens.access_token;
     if (typeof returnTo === "string" && parseDirectLink(returnTo))
       history.replaceState({}, "", returnTo);
-    // Tokens stay in memory. Reloading uses the existing Cognito login session.
+    // Tokens stay in memory. New sign-ins check the password; browser MFA trust is managed centrally.
   }
   return { config, authenticated: !!config.local || !!token };
 }

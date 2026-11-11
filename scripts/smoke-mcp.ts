@@ -232,7 +232,7 @@ try {
   });
   assert.equal(start.status, 302);
   const location = new URL(start.headers.get("location")!);
-  assert.equal(location.origin, config.authDomain);
+  assert.equal(location.origin, new URL(config.authDomain).origin);
   assert.equal(
     location.searchParams.get("client_id"),
     config.mcpCognitoClientId,
