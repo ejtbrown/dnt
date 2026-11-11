@@ -28,6 +28,13 @@ export interface Store {
     limit: number,
     after?: string,
   ): Promise<{ rows: Row<T>[]; next?: string }>;
+  range<T>(
+    pk: string,
+    lower: string,
+    upper: string,
+    limit: number,
+    after?: string,
+  ): Promise<{ rows: Row<T>[]; next?: string }>;
   commit(writes: Write[], checks?: Check[]): Promise<void>;
 }
 export interface Blobs {
@@ -48,6 +55,28 @@ export class MemoryStore implements Store {
       .filter(
         (r) =>
           r.pk === pk && r.sk.startsWith(prefix) && (!after || r.sk > after),
+      )
+      .sort((a, b) => (a.sk < b.sk ? -1 : 1));
+    const page = rows.slice(0, limit);
+    return {
+      rows: structuredClone(page) as Row<T>[],
+      next: rows.length > limit ? page.at(-1)!.sk : undefined,
+    };
+  }
+  async range<T>(
+    pk: string,
+    lower: string,
+    upper: string,
+    limit: number,
+    after?: string,
+  ) {
+    const rows = [...this.rows.values()]
+      .filter(
+        (r) =>
+          r.pk === pk &&
+          r.sk >= lower &&
+          r.sk <= upper &&
+          (!after || r.sk > after),
       )
       .sort((a, b) => (a.sk < b.sk ? -1 : 1));
     const page = rows.slice(0, limit);

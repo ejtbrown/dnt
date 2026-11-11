@@ -90,6 +90,10 @@ An IAM principal needs both `execute-api:Invoke` on the `AgentInvokeArn` output 
 
 See [architecture](docs/architecture.md) for storage, consistency, and security decisions, and [deployment](docs/deployment.md) for initial setup and operations.
 
+## Incremental change polling
+
+Use MCP `list_changes` for compact per-project changes with fixed-watermark pagination and durable sequence checkpoints. Read [change-feed.md](docs/change-feed.md) before relying on initial history coverage or handling an empty page. No new infrastructure or notification subscription is needed.
+
 ## Initial-version limits
 
 There are no attachments, full-text search, project renaming, or hard deletion of work items and documents. Tasks can move among all six states. Comments support explicit revision-bound approval and acknowledgement, not an automatic workflow gate. Historical comment/approval imports preserve source evidence; a full Jira migration tool is not included. Private change-event plumbing is available, but needs an authorized receiver before replacing polling. Document parents and trees are immutable; revisions support content restoration. The UI loads paginated project metadata for small-team boards; very large projects will need server-side filters and indexes. Page bodies are limited to 100 KB of UTF-8 Markdown, work item descriptions and comments to 20,000 characters.

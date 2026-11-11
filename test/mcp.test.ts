@@ -458,6 +458,25 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
     assert.ok(
       (await call("list_audit_events", { project: "ROOT" })).items.length > 10,
     );
+    let changes = await call("list_changes", { project: "ROOT", limit: 2, since: "2020-01-01T00:00:00.000Z" });
+    const watermark = changes.watermark;
+    const ids = new Set<string>();
+    while (true) {
+      assert.equal(changes.watermark, watermark);
+      for (const event of changes.items) {
+        assert.equal(ids.has(event.eventId), false);
+        ids.add(event.eventId);
+        assert.ok(event.sequence <= watermark);
+        assert.equal(event.principal, undefined);
+      }
+      if (!changes.nextCursor) break;
+      changes = await call("list_changes", { project: "ROOT", limit: 2, cursor: changes.nextCursor });
+    }
+    assert.ok(changes.checkpoint);
+    assert.ok(ids.size > 10);
+    const idle = await call("list_changes", { project: "ROOT", cursor: changes.checkpoint });
+    assert.deepEqual(idle.items, []);
+    assert.ok(idle.checkpoint);
     assert.equal(
       (
         await client.callTool({

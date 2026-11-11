@@ -1,3 +1,11 @@
+import {
+  changeKey,
+  encodeChangeCursor,
+  decodeChangeCursor,
+  validSince,
+  type ChangeEvent,
+  type ChangeCoverage,
+} from "./changes.js";
 import { compareText } from "../shared/diff.js";
 import {
   parseDocumentReference,
@@ -368,6 +376,63 @@ export class Service {
       },
       expected: null,
     });
+    const committedProject = writes.find(
+      (w) => w.row.pk === pk && w.row.sk === "META",
+    )!.row;
+    const sequence = committedProject.version;
+    if (!Number.isSafeInteger(sequence) || sequence < 1)
+      throw new Error("Invalid project sequence");
+    const coverage = await this.db.get<ChangeCoverage>(pk, "CHANGE_FEED");
+    if (!coverage)
+      writes.push({
+        row: {
+          pk,
+          sk: "CHANGE_FEED",
+          version: 1,
+          value: { firstSequence: sequence },
+        },
+        expected: null,
+      });
+    const change: ChangeEvent = {
+      eventId: `${pk}/${changeKey(sequence)}`,
+      sequence,
+      project: pk.slice("PROJECT#".length),
+      action,
+      // Project membership is an invalidation event, not a directory disclosure.
+      target: action.startsWith("membership.")
+        ? pk.slice("PROJECT#".length)
+        : target,
+      at: now(),
+    };
+    const entity = (after ?? before) as any;
+    if (entity?.id && Number.isSafeInteger(entity.version)) {
+      if (action.startsWith("item."))
+        change.resource = {
+          entityType: "work_item",
+          id: entity.id,
+          version: entity.version,
+          kind: entity.kind,
+        };
+      else if (action.startsWith("document."))
+        change.resource = {
+          entityType: "document",
+          id: entity.id,
+          version: entity.version,
+          tree: entity.tree,
+        };
+      else if (action.startsWith("comment."))
+        change.resource = {
+          entityType: entity.commentId ? "reaction" : "comment",
+          id: entity.id,
+          version: entity.version,
+          itemId: entity.itemId,
+          ...(entity.commentId ? { commentId: entity.commentId } : {}),
+        };
+    }
+    writes.push({
+      row: { pk, sk: changeKey(sequence), version: 1, value: change },
+      expected: null,
+    });
     // Retain deduplication records. Never silently repeat a create after TTL expiry.
     if (idempotency)
       writes.push({
@@ -405,6 +470,136 @@ export class Service {
     }
     await this.db.commit(writes, checks);
     return response;
+  }
+  async changes(req: Request, project: Row<Project>): Promise<Response> {
+    const slug = project.pk.slice("PROJECT#".length);
+    const rawLimit = req.query?.limit ?? "25";
+    if (!/^\d+$/.test(rawLimit) || +rawLimit < 1 || +rawLimit > 100)
+      throw new HttpError(400, "limit must be between 1 and 100");
+    const cursor = req.query?.cursor;
+    let since = req.query?.since;
+    if (
+      (cursor !== undefined && since !== undefined) ||
+      (since !== undefined && !validSince(since))
+    )
+      throw new HttpError(
+        400,
+        "since must be an ISO timestamp and is allowed only without cursor",
+      );
+    let knownHistoryGap = false;
+    let after = 0,
+      watermark = project.version;
+    if (cursor !== undefined) {
+      try {
+        const decoded = decodeChangeCursor(
+          cursor,
+          req.principal,
+          slug,
+          project.version,
+        );
+        after = decoded.after;
+        knownHistoryGap = decoded.historyGap === true;
+        if (decoded.mode === "page") watermark = decoded.watermark;
+        since = decoded.since;
+      } catch {
+        throw new HttpError(400, "Invalid change cursor");
+      }
+    }
+    const coverage = await this.db.get<ChangeCoverage>(
+      project.pk,
+      "CHANGE_FEED",
+    );
+    const result =
+      after < watermark
+        ? await this.db.range<ChangeEvent>(
+            project.pk,
+            changeKey(after + 1),
+            changeKey(watermark),
+            +rawLimit,
+          )
+        : { rows: [] };
+    const last = result.rows.at(-1)?.value.sequence ?? after;
+    // A Dynamo LastEvaluatedKey can point at the final row; avoid a redundant
+    // empty page at the watermark. Empty pages due to since are still resumable.
+    const more = !!result.next && last < watermark;
+    const token = encodeChangeCursor({
+      v: 1,
+      principal: req.principal,
+      project: slug,
+      mode: more ? "page" : "checkpoint",
+      after: more ? last : watermark,
+      watermark,
+      ...(more && since !== undefined ? { since } : {}),
+      ...(knownHistoryGap ? { historyGap: true } : {}),
+    });
+    // Recheck after storage reads so revocation during pagination cannot return
+    // a page under stale authorization. There is inevitably a read/response race.
+    const currentMembership = await this.membership(req.principal, slug);
+    const currentProject = need(await this.db.get<Project>(project.pk, "META"));
+    if (
+      currentProject.value.deletedAt &&
+      currentMembership.value.role !== "Administrator"
+    )
+      throw new HttpError(404, "Project not found");
+    const firstSequence = coverage?.value.firstSequence ?? null;
+    // During rolling deployment or rollback an old writer may advance META
+    // without producing an event. Never checkpoint silently across that gap.
+    let expectedSequence = Math.max(after + 1, firstSequence ?? watermark + 1);
+    let gap = false;
+    for (const event of result.rows) {
+      if (
+        event.value.sequence !== expectedSequence ||
+        event.sk !== changeKey(expectedSequence)
+      )
+        gap = true;
+      expectedSequence = event.value.sequence + 1;
+    }
+    if (!more && expectedSequence <= watermark) gap = true;
+    if (gap)
+      return {
+        status: 409,
+        body: {
+          error:
+            "Change history gap; capture this recovery checkpoint, take a fresh full snapshot, then replay. Do not mark consumed before the snapshot succeeds",
+          baselineRequired: true,
+          watermark,
+          checkpoint: encodeChangeCursor({
+            v: 1,
+            principal: req.principal,
+            project: slug,
+            mode: "checkpoint",
+            historyGap: true,
+            after: watermark,
+            watermark,
+          }),
+          coverage: {
+            firstSequence,
+            historyComplete: false,
+            note: "At least one mutation has no change event, possibly from an old writer during rollout or rollback. No historical events are invented.",
+          },
+        },
+      };
+    const historyComplete = firstSequence === 1 && !knownHistoryGap;
+    return {
+      status: 200,
+      body: {
+        items: result.rows
+          .map((r) => r.value)
+          .filter(
+            (e) => since === undefined || Date.parse(e.at) >= Date.parse(since),
+          ),
+        watermark,
+        ...(more ? { nextCursor: token } : { checkpoint: token }),
+        baselineRequired: !historyComplete,
+        coverage: {
+          firstSequence,
+          historyComplete,
+          note: historyComplete
+            ? "Change history starts at project creation. since filters only the initial window; future checkpoints use sequence ordering."
+            : "History is incomplete (pre-installation history or a previously detected gap). Take a current content snapshot, then replay changes from its starting checkpoint; this API does not certify snapshot completion.",
+        },
+      },
+    };
   }
   async dispatch(req: Request): Promise<Response> {
     let path: string[];
@@ -529,6 +724,13 @@ export class Service {
     const existingProject = await this.db.get<Project>(pk, "META");
     const membership = await this.membership(req.principal, slug);
     const project = need(existingProject);
+    if (child === "changes" && !id && path.length === 3 && method === "GET") {
+      // Deleted content remains inaccessible; only Administrators can read its
+      // terminal project invalidation, consistent with group tombstone access.
+      if (project.value.deletedAt && membership.value.role !== "Administrator")
+        throw new HttpError(404, "Project not found");
+      return this.changes(req, project);
+    }
     if (child === "groups" || child === "users") {
       this.requireRole(membership, "Administrator");
       if (
