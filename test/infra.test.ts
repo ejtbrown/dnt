@@ -55,7 +55,7 @@ test("human and agent routes require different authenticated mechanisms", () => 
   serviceTemplate.hasResourceProperties("AWS::ApiGatewayV2::Route", {
     RouteKey: "ANY /api/v1/{proxy+}",
     AuthorizationType: "JWT",
-    AuthorizationScopes: ["openid"],
+    AuthorizationScopes: ["aws.cognito.signin.user.admin"],
   });
   serviceTemplate.hasResourceProperties("AWS::ApiGatewayV2::Route", {
     RouteKey: "ANY /agent/v1/{proxy+}",
