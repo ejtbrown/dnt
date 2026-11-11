@@ -354,7 +354,8 @@ export class AppStack extends Stack {
           },
           referrerPolicy: {
             referrerPolicy: cloudfront.HeadersReferrerPolicy.NO_REFERRER,
-            override: true,
+            // The OAuth consent page supplies strict-origin for native form POSTs.
+            override: false,
           },
           strictTransportSecurity: {
             accessControlMaxAge: Duration.days(365),
@@ -363,7 +364,8 @@ export class AppStack extends Stack {
           },
           contentSecurityPolicy: {
             contentSecurityPolicy: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${new URL(config.authDomain).origin}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`,
-            override: true,
+            // Consent permits its validated OAuth callback as a form redirect.
+            override: false,
           },
         },
       },

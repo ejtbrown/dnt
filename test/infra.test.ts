@@ -372,3 +372,18 @@ test("only the exact public page GET is anonymous and direct links reach the SPA
   ])
     assert.equal(handler({ request: { uri } }).uri, uri);
 });
+
+test("CloudFront preserves consent-specific referrer and form redirect policies", () => {
+  serviceTemplate.hasResourceProperties(
+    "AWS::CloudFront::ResponseHeadersPolicy",
+    {
+      ResponseHeadersPolicyConfig: Match.objectLike({
+        SecurityHeadersConfig: Match.objectLike({
+          ReferrerPolicy: { ReferrerPolicy: "no-referrer", Override: false },
+          ContentSecurityPolicy: Match.objectLike({ Override: false }),
+          ContentTypeOptions: { Override: true },
+        }),
+      }),
+    },
+  );
+});
