@@ -40,8 +40,10 @@ export const agentNameSchema = z
   .trim()
   .min(1)
   .max(80)
-  .regex(
-    /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u,
+  // Keep Unicode-category validation on the server. Publishing this regex in
+  // JSON Schema breaks clients whose regex engine does not support JS \p escapes.
+  .refine(
+    (value) => /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u.test(value),
     "Use a single-line agent name without control characters",
   );
 export interface Attribution {

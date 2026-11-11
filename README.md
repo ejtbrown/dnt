@@ -6,7 +6,7 @@ The production deployment targets [dnt.ejtbrown.com](https://dnt.ejtbrown.com), 
 
 ## Run locally
 
-Use Node.js 24 (see `.nvmrc`).
+Use Node.js 24 (see `.nvmrc`) and Python 3 for the MCP catalog interoperability check (standard library only).
 
 ```sh
 npm ci

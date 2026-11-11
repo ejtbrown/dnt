@@ -4,6 +4,7 @@ import { Service } from "../api/service.js";
 import { CognitoLogin } from "./cognito.js";
 import { MetadataClients, OAuthBroker } from "./oauth.js";
 import { createHttpHandler } from "./http.js";
+import { discoveryDiagnostic } from "./diagnostics.js";
 const origin = process.env.PUBLIC_ORIGIN!;
 const broker = new OAuthBroker(
   origin,
@@ -51,13 +52,27 @@ export async function handler(event: any) {
       ...(["GET", "HEAD"].includes(method) ? {} : { body: raw }),
     });
     const response = await handle(request);
+    const body = await response.text();
+    const diagnostic = discoveryDiagnostic(
+      request,
+      raw.toString("utf8"),
+      response.status,
+      body,
+    );
+    if (diagnostic)
+      console.info(
+        JSON.stringify({
+          ...diagnostic,
+          requestId: event.requestContext.requestId,
+        }),
+      );
     const outgoing = Object.fromEntries(response.headers);
     delete outgoing["set-cookie"];
     return {
       statusCode: response.status,
       headers: outgoing,
       cookies: response.headers.getSetCookie(),
-      body: await response.text(),
+      body,
     };
   } catch (error) {
     console.error(

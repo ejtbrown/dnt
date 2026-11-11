@@ -184,6 +184,9 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
       "x".repeat(81),
       "Agent\nAdmin",
       "Agent\u202eAdmin",
+      "Agent\u0000Admin",
+      "Agent\u2028Admin",
+      "Agent\u2029Admin",
     ]) {
       const bad = await client.callTool({
         name: "create_work_item_comment",

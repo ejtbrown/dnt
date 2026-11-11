@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
@@ -85,6 +86,43 @@ test("official MCP client initializes stateless HTTP, discovers complete typed t
     });
     assert.equal(denied.isError, true);
     assert.ok(denied._meta?.["mcp/www_authenticate"]);
+  } finally {
+    await client.close();
+  }
+});
+
+test("the complete catalog has regex patterns consumable by Python MCP clients", async () => {
+  const f = fixture(),
+    client = await connect(f, (await mint(f)).access_token);
+  try {
+    const catalog = await client.listTools();
+    // Python's standard regex compiler catches JS-only escapes that pass the
+    // TypeScript SDK's own schema validation but break downstream importers.
+    execFileSync(
+      "python3",
+      [
+        "-c",
+        `
+import json, re, sys
+def check(value, path):
+    if isinstance(value, dict):
+        if "pattern" in value:
+            try:
+                re.compile(value["pattern"])
+            except re.error as error:
+                raise ValueError(path + ": " + str(error)) from None
+        for key, child in value.items():
+            check(child, path + "/" + key)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            check(child, path + "/" + str(index))
+for tool in json.load(sys.stdin)["tools"]:
+    check(tool["inputSchema"], tool["name"] + "/input")
+    check(tool.get("outputSchema", {}), tool["name"] + "/output")
+`,
+      ],
+      { input: JSON.stringify(catalog), stdio: ["pipe", "pipe", "pipe"] },
+    );
   } finally {
     await client.close();
   }
