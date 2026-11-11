@@ -229,7 +229,8 @@ export class AppStack extends Stack {
       authorizer: new HttpJwtAuthorizer("Cognito", issuer, {
         jwtAudience: [clientId.valueAsString],
       }),
-      authorizationScopes: ["openid"],
+      // API sign-in tokens carry Cognito's user scope, not OAuth login scopes.
+      authorizationScopes: ["aws.cognito.signin.user.admin"],
     });
     api.addRoutes({
       path: "/agent/v1/{proxy+}",
