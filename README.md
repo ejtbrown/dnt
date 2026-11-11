@@ -92,7 +92,7 @@ See [architecture](docs/architecture.md) for storage, consistency, and security 
 
 ## Initial-version limits
 
-There are no attachments, notifications, full-text search, external imports, project renaming, or hard deletion of work items and documents. Tasks can move among all five states; there is no separate approval engine. Document parents and trees are immutable; revisions support content restoration. The UI loads paginated project metadata for small-team boards; very large projects will need server-side filters and indexes. Page bodies are limited to 100 KB of UTF-8 Markdown, work item descriptions and comments to 20,000 characters.
+There are no attachments, full-text search, project renaming, or hard deletion of work items and documents. Tasks can move among all six states. Comments support explicit revision-bound approval and acknowledgement, not an automatic workflow gate. Historical comment/approval imports preserve source evidence; a full Jira migration tool is not included. Private change-event plumbing is available, but needs an authorized receiver before replacing polling. Document parents and trees are immutable; revisions support content restoration. The UI loads paginated project metadata for small-team boards; very large projects will need server-side filters and indexes. Page bodies are limited to 100 KB of UTF-8 Markdown, work item descriptions and comments to 20,000 characters.
 
 The deployment runbook includes production smoke checks and recovery procedures. Browser access tokens stay in memory; reloading requires another sign-in redirect, and expired sessions require sign-in again. Cognito's shared invitation and MFA policy remains owned by `ejtbrown-cognito`.
 
