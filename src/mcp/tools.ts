@@ -246,7 +246,7 @@ export const operations: Operation[] = [
     operationId: "createWorkItem",
     method: "POST",
     description:
-      "Use this to create an Initiative, Epic, or Task. Initiatives have no parent; Epics require an Initiative; Tasks require an Epic in the same project. Maintainer is required for Initiatives/Epics; User can create Tasks. Assignment must reference a project member.",
+      "Use this to create an Initiative, Epic, or Task. Initiatives have no parent; Epics require an Initiative; Tasks require an Epic in the same project. Maintainer is required for all work item creation. Assignment must reference a project member.",
     schema: z.object({ project, input: itemInput, idempotencyKey }).strict(),
     path: itemPath,
     body: (a) => a.input,
@@ -523,6 +523,20 @@ export const operations: Operation[] = [
     path: (a) => `${projectPath(a)}/members/${e(a.principal)}`,
   },
   {
+    name: "list_changes",
+    operationId: "listChanges",
+    method: "GET",
+    description:
+      "Read compact project changes in sequence order, including tasks, documents, comments, reactions and deletion tombstones. Current project membership required. Follow nextCursor to drain a fixed watermark; persist checkpoint only after processing all pages and reuse it as cursor on the next poll. since is optional only for the initial window. Check baselineRequired and coverage; historical events before feed activation are not invented. Treat events as hints and fetch current authorized content before acting.",
+    schema: z.object({
+      project,
+      limit: pagination.limit,
+      cursor: z.string().max(4096).optional().describe("Opaque nextCursor or drained checkpoint; pass unchanged."),
+      since: z.iso.datetime({ offset: true }).optional().describe("Optional initial ISO timestamp; cannot be combined with cursor."),
+    }).strict(),
+    path: (a) => `${projectPath(a)}/changes`,
+  },
+  {
     name: "list_audit_events",
     operationId: "listAuditEvents",
     method: "GET",
@@ -670,6 +684,7 @@ export function createMcpServer(
               ...(a.search !== undefined ? { search: a.search } : {}),
               ...(a.limit ? { limit: String(a.limit) } : {}),
               ...(a.cursor ? { cursor: a.cursor } : {}),
+              ...(a.since ? { since: a.since } : {}),
             },
           }),
         );

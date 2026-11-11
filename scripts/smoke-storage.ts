@@ -51,6 +51,10 @@ const store: Store = {
     const page = await db.query<T>(namespace + pk, prefix, limit, after);
     return { ...page, rows: page.rows.map(restore) };
   },
+  async range<T>(pk: string, lower: string, upper: string, limit: number, after?: string) {
+    const page = await db.range<T>(namespace + pk, lower, upper, limit, after);
+    return { ...page, rows: page.rows.map(restore) };
+  },
   async commit(writes, checks = []) {
     const mapped = writes.map((w) => {
       const row = { ...w.row, pk: namespace + w.row.pk };

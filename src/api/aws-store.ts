@@ -52,6 +52,32 @@ export class DynamoStore implements Store {
       next: result.LastEvaluatedKey?.sk as string | undefined,
     };
   }
+  async range<T>(
+    pk: string,
+    lower: string,
+    upper: string,
+    limit: number,
+    after?: string,
+  ) {
+    const result = await this.client.send(
+      new QueryCommand({
+        TableName: this.table,
+        KeyConditionExpression: "pk = :pk AND sk BETWEEN :lower AND :upper",
+        ExpressionAttributeValues: {
+          ":pk": pk,
+          ":lower": lower,
+          ":upper": upper,
+        },
+        ConsistentRead: true,
+        Limit: limit,
+        ExclusiveStartKey: after ? { pk, sk: after } : undefined,
+      }),
+    );
+    return {
+      rows: (result.Items ?? []) as Row<T>[],
+      next: result.LastEvaluatedKey?.sk as string | undefined,
+    };
+  }
   async commit(writes: Write[], checks: Check[] = []) {
     try {
       await this.client.send(

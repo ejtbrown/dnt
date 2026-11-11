@@ -43,6 +43,8 @@ const store: Store = {
   get: <T>(pk: string, sk: string) => db.get<T>(pk, sk),
   query: <T>(pk: string, prefix: string, limit: number, after?: string) =>
     db.query<T>(pk, prefix, limit, after),
+  range: <T>(pk: string, lower: string, upper: string, limit: number, after?: string) =>
+    db.range<T>(pk, lower, upper, limit, after),
   async commit(writes, checks) {
     for (const { row } of writes)
       records.set(JSON.stringify([row.pk, row.sk]), { pk: row.pk, sk: row.sk });

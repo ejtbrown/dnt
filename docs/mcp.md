@@ -132,3 +132,7 @@ Documents default to `public: false`. Set `input.public` on `create_document`, o
 `import_work_item_comment` retains source metadata and historical approval labels without impersonating the original actor or creating new live approval. See [workflow.md](workflow.md). Actual Jira migration is separate and must be verified.
 
 Task and document changes also produce a private [metadata-only SNS feed](change-events.md). MCP remains stateless HTTP; this does not create a persistent notification connection or automatically wake a ChatGPT dot. An authorized event receiver must be connected separately.
+
+## Incremental change discovery
+
+`list_changes` provides compact per-project mutation metadata. Follow every `nextCursor`, then save the terminal `checkpoint` for the next poll. Check `baselineRequired` and historical coverage; use `since` only on an initial request. Current membership is enforced. See [consumer and initial-snapshot protocol](change-feed.md).
