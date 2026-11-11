@@ -31,3 +31,13 @@ await bundle({
   outfile: "dist/groups/index.js",
   sourcemap: true,
 });
+
+await bundle({
+  entryPoints: ["src/changes/handler.ts"],
+  bundle: true,
+  platform: "node",
+  target: "node24",
+  format: "cjs",
+  outfile: "dist/changes/index.js",
+  sourcemap: true,
+});

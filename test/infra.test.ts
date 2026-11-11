@@ -387,3 +387,31 @@ test("CloudFront preserves consent-specific referrer and form redirect policies"
     },
   );
 });
+
+test("change notifications use a bounded stream worker and private SNS, no persistent connection", () => {
+  serviceTemplate.hasResourceProperties("AWS::SNS::Topic", {
+    TopicName: "dnt-app-changes",
+  });
+  serviceTemplate.resourceCountIs("AWS::SNS::Subscription", 0);
+  serviceTemplate.hasResourceProperties("AWS::Lambda::Function", {
+    MemorySize: 128,
+    Timeout: 30,
+    ReservedConcurrentExecutions: 1,
+    Environment: { Variables: { CHANGES_TOPIC_ARN: Match.anyValue() } },
+  });
+  serviceTemplate.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+    BatchSize: 25,
+    StartingPosition: "LATEST",
+    MaximumRetryAttempts: 6,
+    MaximumRecordAgeInSeconds: 21600,
+    FunctionResponseTypes: ["ReportBatchItemFailures"],
+  });
+  const statements = Object.values(
+    serviceTemplate.findResources("AWS::IAM::Policy"),
+  ).flatMap((p: any) => p.Properties.PolicyDocument.Statement);
+  const publish = statements.filter((s: any) =>
+    [s.Action].flat().includes("sns:Publish"),
+  );
+  assert.equal(publish.length, 1);
+  assert.notEqual(publish[0].Resource, "*");
+});

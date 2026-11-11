@@ -92,7 +92,7 @@ test("direct links resolve across projects; publication exposes only current con
           member,
         )
       ).status,
-      tree === "User" ? 200 : 403,
+      200,
     );
     const published = await request(
       "PATCH",
@@ -130,7 +130,7 @@ test("direct links resolve across projects; publication exposes only current con
           member,
         )
       ).status,
-      tree === "User" ? 200 : 403,
+      200,
     );
     assert.equal(
       (await request("PATCH", path, { public: false }, 1)).status,
@@ -171,7 +171,7 @@ test("direct links resolve across projects; publication exposes only current con
     );
 });
 
-test("page deletion enforces tree permissions, versions and child safety, revoking all links and history", async () => {
+test("page deletion enforces project write permissions, versions and child safety, revoking all links and history", async () => {
   const { request, serviceDb } = setup();
   await request("POST", "/projects", { slug: "AA", name: "First" });
   await request("POST", "/projects/AA/members", {

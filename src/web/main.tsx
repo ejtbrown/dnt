@@ -27,6 +27,7 @@ import {
 import { Content, MarkdownField } from "./markdown.js";
 import { DocumentHistory } from "./document-history.js";
 import { WorkItemComments } from "./comments.js";
+import { ItemHistory } from "./item-history.js";
 import {
   states,
   attributionLabel,
@@ -66,6 +67,7 @@ function Byline({
   return (
     <span className="attribution" title={principal}>
       <bdi>{attributionLabel(attribution)}</bdi>
+      <span className="muted"> · {attribution.source ?? "unknown source"}</span>
     </span>
   );
 }
@@ -144,6 +146,7 @@ function App() {
   const [revisions, setRevisions] = useState<Document[]>([]);
   const project = projects.find((p) => p.slug === slug);
   const role = project?.role ?? "User";
+  const canWrite = rank(role) >= 1;
   const loadGeneration = useRef(0);
   const [loading, setLoading] = useState(false);
   async function run(work: () => Promise<void>) {
@@ -198,8 +201,10 @@ function App() {
     return () => window.removeEventListener("popstate", pop);
   }, []);
   function navigate(next: string) {
-    if (next !== location.pathname) history.pushState({}, "", next);
-    setPath(next);
+    if (next !== location.pathname + location.hash)
+      history.pushState({}, "", next);
+    setPath(new URL(next, location.origin).pathname);
+    window.dispatchEvent(new Event("hashchange"));
   }
   function followInternalLink(event: React.MouseEvent) {
     if (
@@ -218,7 +223,7 @@ function App() {
       return;
     event.preventDefault();
     if (busy || (editDoc && !confirm("Discard unsaved page changes?"))) return;
-    navigate(url.pathname);
+    navigate(url.pathname + url.hash);
   }
   function closeItem() {
     setModal(null);
@@ -639,7 +644,7 @@ function App() {
                             : "The right people and agents, with the right access."}
                   </p>
                 </div>
-                {tab !== "Activity" && (
+                {tab !== "Activity" && canWrite && (
                   <button
                     className="primary"
                     disabled={busy || loading}
@@ -742,7 +747,7 @@ function App() {
                             (i) =>
                               i.id === e.dataTransfer.getData("text/plain"),
                           );
-                          if (item && item.state !== state && !busy)
+                          if (canWrite && item && item.state !== state && !busy)
                             move(item, state);
                         }}
                       >
@@ -760,7 +765,7 @@ function App() {
                               <button
                                 key={item.id}
                                 className="task-card"
-                                draggable={!busy}
+                                draggable={canWrite && !busy}
                                 onDragStart={(e) => {
                                   e.dataTransfer.effectAllowed = "move";
                                   e.dataTransfer.setData("text/plain", item.id);
@@ -780,7 +785,11 @@ function App() {
                                     ?.title ?? item.parentId}
                                 </div>
                                 <div className="card-footer">
-                                  <span>{shortDate(item.updatedAt)}</span>
+                                  <span>
+                                    {item.dueDate
+                                      ? `Due ${item.dueDate}`
+                                      : shortDate(item.updatedAt)}
+                                  </span>
                                   <span className="assignee">
                                     {item.assignee ? "Assigned" : "Unassigned"}
                                   </span>
@@ -801,8 +810,10 @@ function App() {
                     ))}
                   </div>
                   <div className="board-note">
-                    <Circle size={12} /> Drag a task to change its state, or
-                    open it to edit.
+                    <Circle size={12} />{" "}
+                    {canWrite
+                      ? "Drag a task to change its state, or open it to edit."
+                      : "Open a task to read its details and history."}
                   </div>
                 </>
               ) : tab === "Planning" ? (
@@ -875,7 +886,11 @@ function App() {
                         Add an initiative, organize it into epics, then create
                         tasks.
                       </p>
-                      <button className="secondary" onClick={newItem}>
+                      <button
+                        className="secondary"
+                        disabled={!canWrite}
+                        onClick={newItem}
+                      >
                         Create your first initiative
                       </button>
                     </div>
@@ -884,22 +899,20 @@ function App() {
               ) : tab === "Documentation" ? (
                 <>
                   <div className="tree-tabs">
-                    {roles
-                      .filter((t) => rank(t) <= rank(role))
-                      .map((t) => (
-                        <button
-                          className={tree === t ? "selected" : ""}
-                          key={t}
-                          disabled={busy || editDoc}
-                          onClick={() => {
-                            navigate("/");
-                            setTree(t);
-                          }}
-                        >
-                          <BookOpen size={15} />
-                          {t}
-                        </button>
-                      ))}
+                    {roles.map((t) => (
+                      <button
+                        className={tree === t ? "selected" : ""}
+                        key={t}
+                        disabled={busy || editDoc}
+                        onClick={() => {
+                          navigate("/");
+                          setTree(t);
+                        }}
+                      >
+                        <BookOpen size={15} />
+                        {t}
+                      </button>
+                    ))}
                   </div>
                   <div className="docs-layout">
                     <aside className="doc-nav">
@@ -980,14 +993,14 @@ function App() {
                               </button>
                               <button
                                 className="secondary"
-                                disabled={busy}
+                                disabled={busy || !canWrite}
                                 onClick={() => setEditDoc(true)}
                               >
                                 Edit page
                               </button>
                               <button
                                 className="secondary danger"
-                                disabled={busy}
+                                disabled={busy || !canWrite}
                                 onClick={() => {
                                   if (
                                     !confirm(
@@ -1033,7 +1046,7 @@ function App() {
                                 <input
                                   type="checkbox"
                                   checked={selectedDoc.public}
-                                  disabled={busy}
+                                  disabled={busy || !canWrite}
                                   onChange={(e) => {
                                     const isPublic = e.target.checked;
                                     const original = selectedDoc;
@@ -1089,6 +1102,7 @@ function App() {
                           <button
                             className="secondary"
                             onClick={() => setModal("doc")}
+                            disabled={!canWrite}
                           >
                             <Plus size={16} /> New page
                           </button>
@@ -1104,10 +1118,9 @@ function App() {
                   <div className="member-info">
                     <Settings2 size={19} />
                     <p>
-                      Roles include the permissions beneath them. Users manage
-                      tasks and User documentation. Maintainers also manage
-                      initiatives, epics, and Maintainer documentation.
-                      Administrators manage all content and project access.
+                      Users have read-only access. Maintainers create, update
+                      and delete documents and tasks across all documentation
+                      trees. Administrators also manage project access.
                     </p>
                   </div>
                   <ProjectGroups
@@ -1297,6 +1310,33 @@ function App() {
                   })
                 }
               />
+              {editItem && canWrite && (
+                <button
+                  className="secondary danger"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      !confirm(
+                        `Delete ${editItem.id} “${editItem.title}”? It will leave active lists; its revision history remains retained. Use Cancelled instead to keep intentionally stopped work visible.`,
+                      )
+                    )
+                      return;
+                    run(async () => {
+                      await api(
+                        `/projects/${slug}/items/${editItem.id}`,
+                        "DELETE",
+                        undefined,
+                        editItem.version,
+                      );
+                      await refresh();
+                      closeItem();
+                    });
+                  }}
+                >
+                  <Trash2 size={16} /> Delete work item
+                </button>
+              )}
+              {editItem && <ItemHistory key={editItem.id} item={editItem} />}
               {editItem && (
                 <WorkItemComments
                   key={`${slug}/${editItem.id}`}
@@ -1304,6 +1344,7 @@ function App() {
                   itemId={editItem.id}
                   principal={me?.principal ?? ""}
                   administrator={role === "Administrator"}
+                  canWrite={canWrite}
                 />
               )}
             </>
@@ -1349,7 +1390,7 @@ function App() {
               project={slug}
               tree={tree}
               revisions={revisions}
-              busy={busy}
+              busy={busy || !canWrite}
               restore={(rev) =>
                 run(async () => {
                   const old = await api<Document & { content: string }>(
@@ -1468,6 +1509,21 @@ function ItemForm({
   const [parentId, setParent] = useState(initial?.parentId ?? "");
   const [state, setState] = useState<State>(initial?.state ?? "Concept");
   const [assignee, setAssignee] = useState(initial?.assignee ?? "");
+  const [dueDate, setDueDate] = useState(initial?.dueDate ?? "");
+  const [dependencies, setDependencies] = useState(
+    (initial?.dependencies ?? []).join(", "),
+  );
+  const [relatedTasks, setRelatedTasks] = useState(
+    (initial?.relatedTasks ?? []).join(", "),
+  );
+  const taskIds = (value: string) => [
+    ...new Set(
+      value
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map((id) => id.toUpperCase()),
+    ),
+  ];
   const parents = items.filter(
     (i) => i.kind === (kind === "Task" ? "Epic" : "Initiative"),
   );
@@ -1476,134 +1532,208 @@ function ItemForm({
     title,
     description,
     parentId: kind === "Initiative" ? null : parentId || parents[0]?.id || null,
-    ...(kind === "Task" ? { state } : {}),
+    ...(kind === "Task"
+      ? {
+          state,
+          dueDate: dueDate || null,
+          ...(!initial || JSON.stringify(taskIds(dependencies)) !== JSON.stringify(initial.dependencies ?? [])
+            ? { dependencies: taskIds(dependencies) }
+            : {}),
+          ...(!initial || JSON.stringify(taskIds(relatedTasks)) !== JSON.stringify(initial.relatedTasks ?? [])
+            ? { relatedTasks: taskIds(relatedTasks) }
+            : {}),
+        }
+      : {}),
     assignee: assignee || null,
   };
   const key = useRequestKey(body);
-  const readOnly = initial && initial.kind !== "Task" && rank(role) < 1;
+  const readOnly = rank(role) < 1;
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        save(body, key);
+        if (!readOnly) save(body, key);
       }}
     >
-      <div className="form-row">
-        <label>
-          Type
-          <select
-            value={kind}
-            disabled={!!initial}
-            onChange={(e) => {
-              setKind(e.target.value as Kind);
-              setParent("");
-            }}
-          >
-            {kinds
-              .filter(
-                (k) => rank(role) > 0 || k === "Task" || k === initial?.kind,
-              )
-              .map((k) => (
-                <option key={k}>{k}</option>
-              ))}
-          </select>
-        </label>
-        {kind === "Task" && (
+      <fieldset disabled={busy || readOnly} className="item-fields">
+        <div className="form-row">
           <label>
-            State
+            Type
             <select
-              value={state}
-              onChange={(e) => setState(e.target.value as State)}
+              value={kind}
+              disabled={!!initial}
+              onChange={(e) => {
+                setKind(e.target.value as Kind);
+                setParent("");
+              }}
             >
-              {states.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
+              {kinds
+                .filter(
+                  (k) => rank(role) > 0 || k === "Task" || k === initial?.kind,
+                )
+                .map((k) => (
+                  <option key={k}>{k}</option>
+                ))}
             </select>
           </label>
-        )}
-      </div>
-      {kind !== "Initiative" && (
-        <label>
-          {kind === "Task" ? "Epic" : "Initiative"}
-          <select
-            required
-            value={parentId || parents[0]?.id || ""}
-            onChange={(e) => setParent(e.target.value)}
-          >
-            <option value="" disabled>
-              Select parent
-            </option>
-            {parents.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id} · {p.title}
-              </option>
-            ))}
-          </select>
-          {!parents.length && (
-            <small>
-              Create a {kind === "Task" ? "parent epic" : "parent initiative"}{" "}
-              first.
-            </small>
+          {kind === "Task" && (
+            <label>
+              State
+              <select
+                value={state}
+                onChange={(e) => setState(e.target.value as State)}
+              >
+                {states.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            </label>
           )}
-        </label>
-      )}
-      <label>
-        Title
-        <input
-          required
-          maxLength={200}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          autoFocus
-          placeholder="What needs to happen?"
-        />
-      </label>
-      <section aria-label="Work item description">
-        {editDescription && !readOnly ? (
-          <MarkdownField
-            label="Description"
-            value={description}
-            onChange={setDescription}
-            maxLength={20000}
-            disabled={busy}
-          />
-        ) : (
-          <>
-            <div className="editor-toolbar">
-              <span>Description</span>
-              {!readOnly && (
-                <button
-                  type="button"
-                  className="quiet"
-                  onClick={() => setEditDescription(true)}
-                >
-                  Edit description
-                </button>
-              )}
-            </div>
-            <Content>{description || "*No description yet.*"}</Content>
-          </>
+        </div>
+        {kind !== "Initiative" && (
+          <label>
+            {kind === "Task" ? "Epic" : "Initiative"}
+            <select
+              required
+              value={parentId || parents[0]?.id || ""}
+              onChange={(e) => setParent(e.target.value)}
+            >
+              <option value="" disabled>
+                Select parent
+              </option>
+              {parents.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id} · {p.title}
+                </option>
+              ))}
+            </select>
+            {!parents.length && (
+              <small>
+                Create a {kind === "Task" ? "parent epic" : "parent initiative"}{" "}
+                first.
+              </small>
+            )}
+          </label>
         )}
-      </section>
-      <label>
-        Assignee identity (optional)
-        <input
-          value={assignee}
-          onChange={(e) => setAssignee(e.target.value)}
-          placeholder="cognito:<sub> or iam:<role ARN>"
-        />
-      </label>
-      <div className="form-actions">
-        <button
-          className="primary"
-          disabled={
-            busy || !!readOnly || (kind !== "Initiative" && !parents.length)
-          }
-        >
-          <Check size={16} />
-          {busy ? "Saving…" : initial ? "Save changes" : "Create work item"}
-        </button>
-      </div>
+        <label>
+          Title
+          <input
+            required
+            maxLength={200}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            autoFocus
+            placeholder="What needs to happen?"
+          />
+        </label>
+        <section aria-label="Work item description">
+          {editDescription && !readOnly ? (
+            <MarkdownField
+              label="Description"
+              value={description}
+              onChange={setDescription}
+              maxLength={20000}
+              disabled={busy}
+            />
+          ) : (
+            <>
+              <div className="editor-toolbar">
+                <span>Description</span>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="quiet"
+                    onClick={() => setEditDescription(true)}
+                  >
+                    Edit description
+                  </button>
+                )}
+              </div>
+              <Content>{description || "*No description yet.*"}</Content>
+            </>
+          )}
+        </section>
+        <label>
+          Assignee identity (optional)
+          <input
+            value={assignee}
+            onChange={(e) => setAssignee(e.target.value)}
+            placeholder="cognito:<sub> or iam:<role ARN>"
+          />
+        </label>
+        {kind === "Task" && (
+          <section aria-label="Task scheduling and links">
+            <label>
+              Due date (optional)
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </label>
+            <label>
+              Depends on tasks
+              <input
+                value={dependencies}
+                onChange={(e) => setDependencies(e.target.value)}
+                placeholder="ROOT-3, PT-7"
+                list="task-link-options"
+              />
+            </label>
+            <small>
+              Enter full task IDs, separated by commas. A dependency must finish
+              before this task can proceed.
+            </small>
+            <label>
+              Related tasks
+              <input
+                value={relatedTasks}
+                onChange={(e) => setRelatedTasks(e.target.value)}
+                placeholder="ROOT-4"
+                list="task-link-options"
+              />
+            </label>
+            <small>
+              Related tasks provide context, not a blocking relationship.
+            </small>
+            <datalist id="task-link-options">
+              {items
+                .filter((i) => i.kind === "Task" && i.id !== initial?.id)
+                .map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.title}
+                  </option>
+                ))}
+            </datalist>
+            {[...taskIds(dependencies), ...taskIds(relatedTasks)].length >
+              0 && (
+              <p className="task-links">
+                {[
+                  ...new Set([
+                    ...taskIds(dependencies),
+                    ...taskIds(relatedTasks),
+                  ]),
+                ].map((id) => (
+                  <a key={id} href={itemLink(id)}>
+                    {id}
+                  </a>
+                ))}
+              </p>
+            )}
+          </section>
+        )}
+        <div className="form-actions">
+          <button
+            className="primary"
+            disabled={
+              busy || !!readOnly || (kind !== "Initiative" && !parents.length)
+            }
+          >
+            <Check size={16} />
+            {busy ? "Saving…" : initial ? "Save changes" : "Create work item"}
+          </button>
+        </div>
+      </fieldset>
     </form>
   );
 }
@@ -1812,6 +1942,8 @@ function ProjectActivity({ project }: { project: string }) {
     "membership.removed": "Removed membership",
     "comment.updated": "Edited comment",
     "comment.created": "Commented on work item",
+    "comment.reaction.created": "Recorded comment reaction",
+    "comment.reaction.withdrawn": "Withdrew comment reaction",
   };
   return (
     <section className="activity-list" aria-label="Project activity">
@@ -1834,8 +1966,14 @@ function ProjectActivity({ project }: { project: string }) {
                 attribution={event.attribution}
                 principal={event.principal}
               />{" "}
-              · {shortDate(event.at)}
+              · {new Date(event.at).toLocaleString()}
             </p>
+            <details>
+              <summary>Audit details</summary>
+              <pre className="markdown-source">
+                {JSON.stringify(event, null, 2)}
+              </pre>
+            </details>
           </article>
         ))
       )}

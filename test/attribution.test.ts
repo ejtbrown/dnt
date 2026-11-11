@@ -30,7 +30,15 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
   const f = fixture(),
     client = await connect(f);
   const call = async (name: string, args: Record<string, unknown>) => {
-    const result = await client.callTool({ name, arguments: args });
+    const result = await client.callTool({
+      name,
+      arguments: {
+        ...(name.startsWith("get_") || name.startsWith("list_")
+          ? {}
+          : { agentName: "Test Agent" }),
+        ...args,
+      },
+    });
     assert.ok(!result.isError, JSON.stringify(result));
     return (result.structuredContent as any).result;
   };
@@ -66,6 +74,7 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
       principal: admin,
       userName: "Owner",
       agentName: "Builder",
+      source: "mcp",
     });
     assert.equal(task.updatedBy, admin);
     const doc = await call("create_document", {
@@ -102,12 +111,14 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
     assert.deepEqual(untagged.attribution, {
       principal: admin,
       userName: "Owner",
+      agentName: "Test Agent",
+      source: "mcp",
     });
     assert.deepEqual(
       (await call("list_document_revisions", page)).items.map(
         (r: any) => r.attribution.agentName,
       ),
-      ["Writer", "Editor", "Restorer", undefined],
+      ["Writer", "Editor", "Restorer", "Test Agent"],
     );
     const comment = {
       project: "ROOT",
@@ -177,6 +188,20 @@ test("MCP attribution is per call, cannot forge the user, and survives history, 
       audit.find((a: any) => a.action === "membership.removed").attribution
         .agentName,
       "Access Manager",
+    );
+    assert.equal(
+      (
+        await client.callTool({
+          name: "create_work_item_comment",
+          arguments: {
+            project: "ROOT",
+            id: task.id,
+            input: { content: "Missing agent" },
+            idempotencyKey: randomUUID(),
+          },
+        })
+      ).isError,
+      true,
     );
     for (const agentName of [
       "",
@@ -278,7 +303,7 @@ test("comments are scoped to work items and membership, paginated, versioned, an
   );
   await request("POST", "/projects/ROOT/members", {
     principal: member,
-    role: "User",
+    role: "Maintainer",
   });
   const one = await request("POST", path, { content: "First" }, member);
   assert.equal(one.status, 201);

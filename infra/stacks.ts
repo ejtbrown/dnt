@@ -13,6 +13,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as sns from "aws-cdk-lib/aws-sns";
 import * as events from "aws-cdk-lib/aws-lambda-event-sources";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as apigw from "aws-cdk-lib/aws-apigatewayv2";
@@ -143,6 +144,66 @@ export class AppStack extends Stack {
     data.table.grantReadWriteData(fn);
     data.content.grantRead(fn);
     data.content.grantPut(fn);
+    // No polling, VPC, gateway or always-on server: publish committed audit inserts.
+    // Subscriptions are operator-owned and deliberately not created implicitly.
+    const changesTopic = new sns.Topic(this, "ChangesTopic", {
+      topicName: "dnt-app-changes",
+      enforceSSL: true,
+    });
+    const changeFailures = new sqs.Queue(this, "ChangeFailures", {
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      retentionPeriod: Duration.days(14),
+      enforceSSL: true,
+    });
+    const changeWorker = new lambda.Function(this, "ChangeWorker", {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.ARM_64,
+      handler: "index.handler",
+      code: lambda.Code.fromAsset("dist/changes"),
+      timeout: Duration.seconds(30),
+      memorySize: 128,
+      reservedConcurrentExecutions: 1,
+      logGroup: new logs.LogGroup(this, "ChangeLogs", {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.RETAIN,
+      }),
+      environment: { CHANGES_TOPIC_ARN: changesTopic.topicArn },
+    });
+    changesTopic.grantPublish(changeWorker);
+    changeWorker.addEventSource(
+      new events.DynamoEventSource(data.table, {
+        startingPosition: lambda.StartingPosition.LATEST,
+        batchSize: 25,
+        parallelizationFactor: 1,
+        retryAttempts: 6,
+        maxRecordAge: Duration.hours(6),
+        reportBatchItemFailures: true,
+        bisectBatchOnError: true,
+        onFailure: new events.SqsDlq(changeFailures),
+        filters: [
+          lambda.FilterCriteria.filter({
+            eventName: ["INSERT"],
+            dynamodb: {
+              NewImage: {
+                pk: { S: [{ prefix: "PROJECT#" }] },
+                sk: { S: [{ prefix: "AUDIT#" }] },
+              },
+            },
+          }),
+        ],
+      }),
+    );
+    new cloudwatch.Alarm(this, "ChangeDeliveryFailures", {
+      metric: changeFailures.metricApproximateNumberOfMessagesVisible(),
+      threshold: 1,
+      evaluationPeriods: 1,
+      alarmDescription:
+        "DNT change events exhausted retries; inspect and replay failed stream records using durable audit IDs.",
+    });
+    new CfnOutput(this, "ChangesTopicArn", { value: changesTopic.topicArn });
+    new CfnOutput(this, "ChangeFailuresQueue", {
+      value: changeFailures.queueUrl,
+    });
     const groupFailures = new sqs.Queue(this, "GroupFailures", {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       retentionPeriod: Duration.days(14),

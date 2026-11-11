@@ -13,7 +13,7 @@ const reconstruct = (diff: TextDiff, side: "before" | "after") =>
     .filter((p) => p.type !== (side === "before" ? "added" : "removed"))
     .map((p) => p.text)
     .join("");
-async function setup() {
+async function setup(writer = false) {
   const db = new MemoryStore(),
     blobs = new MemoryBlobs();
   const service = new Service(db, blobs, new MemoryDirectory(true, [admin]));
@@ -45,7 +45,7 @@ async function setup() {
   for (const principal of [user, other])
     await request("POST", "/projects/ROOT/members", {
       principal,
-      role: "User",
+      role: writer && principal === user ? "Maintainer" : "User",
     });
   return { db, blobs, request };
 }
@@ -145,7 +145,7 @@ test("document comparison supports arbitrary revisions, exact titles/bodies, per
           to: "20",
         })
       ).status,
-      tree === "User" ? 200 : 403,
+      200,
     );
     const count = blobs.objects.size;
     await request("PATCH", path, { title: "Title only" }, admin, 20);
@@ -174,7 +174,7 @@ test("document comparison supports arbitrary revisions, exact titles/bodies, per
   }
 });
 test("all work items support editable Markdown comments with immutable, paginated, attributed history", async () => {
-  const { request } = await setup();
+  const { request } = await setup(true);
   let parentId: string | undefined;
   for (const kind of ["Initiative", "Epic", "Task"]) {
     const item = (

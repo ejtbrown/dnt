@@ -49,7 +49,7 @@ test("official MCP client initializes stateless HTTP, discovers complete typed t
     client = await connect(f);
   try {
     const tools = (await client.listTools()).tools;
-    assert.equal(tools.length, 33);
+    assert.equal(tools.length, operations.length + 2);
     const openapi = JSON.parse(readFileSync("public/openapi.json", "utf8"));
     const expected = Object.values(openapi.paths)
       .flatMap((methods: any) =>
@@ -135,7 +135,15 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
   const invoked = new Set<string>();
   const call = async (name: string, args: Record<string, unknown> = {}) => {
     invoked.add(name);
-    const response = await client.callTool({ name, arguments: args });
+    const response = await client.callTool({
+      name,
+      arguments: {
+        ...(operations.find((o) => o.name === name)?.method !== "GET"
+          ? { agentName: "Lifecycle Agent" }
+          : {}),
+        ...args,
+      },
+    });
     assert.ok(!response.isError, JSON.stringify(response));
     return (response.structuredContent as any).result;
   };
@@ -221,6 +229,7 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
       "Needs Attention",
       "Review",
       "Done",
+      "Cancelled",
       "Concept",
     ])
       current = await call("update_work_item", {
@@ -386,9 +395,16 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
           })
         ).isError,
       );
+      for (const tree of ["User", "Maintainer", "Administrator"])
+        assert.ok(
+          !(
+            await user.callTool({
+              name: "list_documents",
+              arguments: { project: "ROOT", tree },
+            })
+          ).isError,
+        );
       for (const [name, args] of [
-        ["list_documents", { project: "ROOT", tree: "Maintainer" }],
-        ["list_documents", { project: "ROOT", tree: "Administrator" }],
         ["list_members", { project: "ROOT" }],
         ["list_audit_events", { project: "ROOT" }],
         [
@@ -475,6 +491,46 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
       ).items.length,
       1,
     );
+    const scope = { project: "ROOT", id: task.id };
+    const revisions = await call("list_work_item_revisions", scope);
+    assert.ok(revisions.items.length > 1);
+    assert.equal(
+      (await call("get_work_item_revision", { ...scope, revision: 1 })).title,
+      "Implement",
+    );
+    const approval = await call("react_to_comment", {
+      ...commentArgs,
+      input: { kind: "approval", commentVersion: 2 },
+      idempotencyKey: randomUUID(),
+    });
+    assert.equal(
+      (await call("list_comment_reactions", commentArgs)).items[0].kind,
+      "approval",
+    );
+    await call("withdraw_comment_reaction", {
+      ...commentArgs,
+      reactionId: approval.id,
+      expectedVersion: 1,
+    });
+    const imported = await call("import_work_item_comment", {
+      ...scope,
+      input: {
+        content: "Original approval",
+        source: {
+          system: "jira",
+          id: "107",
+          url: "https://example.atlassian.net/browse/ROOT-1",
+          author: "Original author",
+        },
+        historicalApprovals: [{ kind: "approval", author: "Erick" }],
+      },
+      idempotencyKey: randomUUID(),
+    });
+    assert.equal(imported.importedEvidence.historical, true);
+    await call("delete_work_item", {
+      ...scope,
+      expectedVersion: current.version,
+    });
     const beforeDelete = await call("get_project", { project: "ROOT" });
     await call("delete_project", {
       project: "ROOT",
@@ -503,6 +559,7 @@ test("read-only OAuth scopes cannot mutate; caller identity cannot be overridden
       name: "create_project",
       arguments: {
         input: { slug: "ROOT", name: "No" },
+        agentName: "Read-only Test",
         idempotencyKey: randomUUID(),
       },
     });

@@ -17,6 +17,10 @@ import {
   projectInput,
   agentNameSchema,
   commentInput,
+  commentImportInput,
+  commentPatch,
+  reactionInput,
+  type CommentReaction,
   type WorkItemComment,
   type Attribution,
   itemInput,
@@ -39,6 +43,7 @@ import {
   type Blobs,
   type Row,
   type Write,
+  type Check,
 } from "./store.js";
 
 export class HttpError extends Error {
@@ -56,6 +61,7 @@ export interface Request {
   // Trusted adapter context, never copied from HTTP headers or request bodies.
   userName?: string;
   agentName?: string;
+  origin?: "web" | "mcp" | "agent";
   headers: Record<string, string | undefined>;
   query?: Record<string, string | undefined>;
   body?: unknown;
@@ -153,6 +159,12 @@ export class Service {
       value.kind
     )
       result.url = `${this.origin}${itemLink(value.id)}`;
+    if (
+      typeof value.itemId === "string" &&
+      typeof value.id === "string" &&
+      typeof value.content === "string"
+    )
+      result.url = `${this.origin}${itemLink(value.itemId)}#comment-${value.id}`;
     return result;
   }
   async isDntAdmin(principal: string) {
@@ -227,6 +239,7 @@ export class Service {
   attribution(req: Request): Attribution {
     return {
       principal: req.principal,
+      source: req.origin ?? "unknown",
       userName: req.userName?.trim() || req.principal,
       ...(req.agentName === undefined
         ? {}
@@ -242,6 +255,9 @@ export class Service {
       writes: Write[];
       action: string;
       target: string;
+      before?: unknown;
+      after?: unknown;
+      checks?: Check[];
     }>,
   ): Promise<Response> {
     const attribution = this.attribution(req);
@@ -257,17 +273,29 @@ export class Service {
         pk: `IDEMP#${digest(`${req.principal}\n${req.path}\n${token}`)}`,
         hash: digest(
           JSON.stringify(req.body ?? null) +
+            `\nsource:${req.origin ?? "unknown"}` +
             (attribution.agentName === undefined
               ? ""
               : `\nagentName:${JSON.stringify(attribution.agentName)}`),
         ),
       };
-      const old = await this.db.get<{ hash: string; response: Response }>(
-        idempotency.pk,
-        "RESULT",
-      );
+      const old = await this.db.get<{
+        hash: string;
+        response: Response;
+        source?: string;
+      }>(idempotency.pk, "RESULT");
       if (old) {
-        if (old.value.hash !== idempotency.hash)
+        const legacyHash = digest(
+          JSON.stringify(req.body ?? null) +
+            (attribution.agentName === undefined
+              ? ""
+              : `\nagentName:${JSON.stringify(attribution.agentName)}`),
+        );
+        const legacyReplay =
+          old.value.source === undefined &&
+          old.value.response.body?.attribution?.source === undefined &&
+          old.value.hash === legacyHash;
+        if (old.value.hash !== idempotency.hash && !legacyReplay)
           throw new HttpError(
             409,
             "Idempotency-Key was used with a different request",
@@ -275,7 +303,15 @@ export class Service {
         return old.value.response;
       }
     }
-    const { response, writes, action, target } = await work();
+    const {
+      response,
+      writes,
+      action,
+      target,
+      before,
+      after,
+      checks: extraChecks = [],
+    } = await work();
     const pk = project?.pk ?? writes.find((w) => w.row.sk === "META")!.row.pk;
     if (
       project &&
@@ -309,6 +345,22 @@ export class Service {
         value: {
           action,
           target,
+          ...(before === undefined ? {} : { before }),
+          ...(after === undefined ? {} : { after }),
+          ...(before || after
+            ? {
+                changedFields: [
+                  ...new Set([
+                    ...Object.keys((before ?? {}) as object),
+                    ...Object.keys((after ?? {}) as object),
+                  ]),
+                ].filter(
+                  (key) =>
+                    JSON.stringify((before as any)?.[key]) !==
+                    JSON.stringify((after as any)?.[key]),
+                ),
+              }
+            : {}),
           principal: req.principal,
           attribution,
           at: now(),
@@ -323,7 +375,11 @@ export class Service {
           pk: idempotency.pk,
           sk: "RESULT",
           version: 1,
-          value: { hash: idempotency.hash, response },
+          value: {
+            hash: idempotency.hash,
+            response,
+            source: req.origin ?? "unknown",
+          },
         },
         expected: null,
       });
@@ -340,6 +396,13 @@ export class Service {
             },
           ]
         : [];
+    for (const check of extraChecks) {
+      if (
+        !writes.some((w) => w.row.pk === check.pk && w.row.sk === check.sk) &&
+        !checks.some((c) => c.pk === check.pk && c.sk === check.sk)
+      )
+        checks.push(check);
+    }
     await this.db.commit(writes, checks);
     return response;
   }
@@ -654,18 +717,50 @@ export class Service {
         });
       }
     }
-    if (
-      child === "items" &&
-      id &&
-      action === "comments" &&
-      [5, 6, 7].includes(path.length)
-    ) {
+    if (child === "items" && id && action === "revisions" && method === "GET") {
       need(
         await this.db.get<WorkItem>(pk, itemKey(slug, id)),
         "Work item not found",
       );
+      const prefix = `ITEM_REV#${id}#`;
+      if (!revision)
+        return {
+          status: 200,
+          body: await this.page<WorkItem>(pk, prefix, req),
+        };
+      if (!/^[1-9]\d{0,11}$/.test(revision) || path.length !== 6)
+        throw new HttpError(400, "Invalid revision");
+      return {
+        status: 200,
+        body: need(
+          await this.db.get<WorkItem>(
+            pk,
+            `${prefix}${revision.padStart(12, "0")}`,
+          ),
+          "Revision not found",
+        ).value,
+      };
+    }
+    if (
+      child === "items" &&
+      id &&
+      action === "comments" &&
+      [5, 6, 7, 8].includes(path.length)
+    ) {
+      const item = need(
+        await this.db.get<WorkItem>(pk, itemKey(slug, id)),
+        "Work item not found",
+      );
+      if (
+        item.value.deletedAt &&
+        method !== "GET" &&
+        !(method === "DELETE" && path[6] === "reactions" && path.length === 8)
+      )
+        throw new HttpError(409, "Cannot change a deleted item");
       const prefix = `COMMENT#${itemKey(slug, id)}#`;
-      const commentId = path[5];
+      const importing =
+        path[5] === "import" && path.length === 6 && method === "POST";
+      const commentId = importing ? undefined : path[5];
       const revisionPrefix = (cid: string) =>
         `COMMENT_REV#${itemKey(slug, id)}#${cid}#`;
       if (commentId) {
@@ -680,6 +775,115 @@ export class Service {
           await this.db.get<WorkItemComment>(pk, index.value.key),
           "Comment not found",
         );
+        if (path[6] === "reactions") {
+          const reactionPrefix = `REACTION#${itemKey(slug, id)}#${commentId}#`;
+          if (path.length === 7 && method === "GET")
+            return {
+              status: 200,
+              body: await this.page<CommentReaction>(pk, reactionPrefix, req),
+            };
+          if (path.length === 7 && method === "POST") {
+            this.requireRole(membership, "Maintainer");
+            const input = reactionInput.parse(req.body);
+            return this.mutate(req, membership, project, async () => {
+              if (input.commentVersion !== old.version)
+                throw new HttpError(
+                  412,
+                  "Comment changed. Read the exact revision before reacting.",
+                );
+              // Distinct idempotency keys from two tabs must not create duplicate
+              // active consent. The project-version transaction serializes this check.
+              let after: string | undefined;
+              do {
+                const page = await this.db.query<CommentReaction>(
+                  pk,
+                  reactionPrefix,
+                  100,
+                  after,
+                );
+                if (
+                  page.rows.some(
+                    (r) =>
+                      r.value.principal === req.principal &&
+                      r.value.commentVersion === input.commentVersion &&
+                      r.value.kind === input.kind &&
+                      !r.value.withdrawnAt,
+                  )
+                )
+                  throw new HttpError(
+                    409,
+                    "You already have this active reaction. Refresh the comment before changing it.",
+                  );
+                after = page.next;
+              } while (after);
+              const value: CommentReaction = {
+                ...input,
+                id: randomUUID(),
+                project: slug,
+                itemId: id,
+                commentId,
+                principal: req.principal,
+                attribution: this.attribution(req),
+                createdAt: now(),
+                version: 1,
+              };
+              return {
+                response: { status: 201, body: value },
+                action: `comment.${input.kind}`,
+                target: `${id}/${commentId}`,
+                after: value,
+                writes: [
+                  {
+                    row: row(pk, `${reactionPrefix}${value.id}`, value),
+                    expected: null,
+                  },
+                  // A conditional no-op prevents an approval racing a comment edit.
+                  { row: old, expected: old.version },
+                ],
+              };
+            });
+          }
+          if (path.length === 8 && method === "DELETE") {
+            const reaction = need(
+              await this.db.get<CommentReaction>(
+                pk,
+                `${reactionPrefix}${path[7]}`,
+              ),
+              "Reaction not found",
+            );
+            if (reaction.value.principal !== req.principal)
+              throw new HttpError(
+                403,
+                "Only the reacting principal may withdraw a reaction",
+              );
+            this.expected(req, reaction);
+            if (reaction.value.withdrawnAt)
+              throw new HttpError(409, "Reaction already withdrawn");
+            // Withdrawing one's own prior consent is allowed for any current
+            // project member, including a principal demoted to read-only User.
+            return this.mutate(req, membership, project, async () => {
+              const value = {
+                ...reaction.value,
+                withdrawnAt: now(),
+                version: reaction.version + 1,
+              };
+              return {
+                response: { status: 200, body: value },
+                action: "comment.reaction.withdrawn",
+                target: `${id}/${commentId}`,
+                before: reaction.value,
+                after: value,
+                writes: [
+                  {
+                    row: row(pk, reaction.sk, value),
+                    expected: reaction.version,
+                  },
+                ],
+              };
+            });
+          }
+          throw new HttpError(405, "Method not allowed");
+        }
         if (path[6] === "revisions" && path.length === 7 && method === "GET") {
           const page = await this.page<WorkItemComment>(
             pk,
@@ -690,10 +894,9 @@ export class Service {
         }
         if (path.length !== 6 || method !== "PATCH")
           throw new HttpError(405, "Method not allowed");
-        if (req.principal !== old.value.createdBy)
-          this.requireRole(membership, "Administrator");
+        this.requireRole(membership, "Maintainer");
         this.expected(req, old);
-        const input = commentInput.parse(req.body);
+        const input = commentPatch.parse(req.body);
         return this.mutate(req, membership, project, async () => {
           const value: WorkItemComment = {
             ...old.value,
@@ -718,22 +921,73 @@ export class Service {
           return {
             response: { status: 200, body: value },
             writes,
+            before: old.value,
+            after: value,
             action: "comment.updated",
             target: `${id}/${commentId}`,
           };
         });
       }
-      if (path.length !== 5) throw new HttpError(404, "Not found");
+      if (path.length !== 5 && !importing)
+        throw new HttpError(404, "Not found");
       if (method === "GET")
         return {
           status: 200,
           body: await this.page<WorkItemComment>(pk, prefix, req),
         };
       if (method === "POST") {
-        const input = commentInput.parse(req.body);
+        this.requireRole(membership, "Maintainer");
+        const parsed = importing
+          ? commentImportInput.parse(req.body)
+          : commentInput.parse(req.body);
+        const { content, parentCommentId, parentCommentVersion } = parsed;
+        const input = {
+          content,
+          ...(parentCommentId === undefined ? {} : { parentCommentId }),
+          ...(parentCommentVersion === undefined
+            ? {}
+            : { parentCommentVersion }),
+        };
         return this.mutate(req, membership, project, async () => {
+          let parent: Row<WorkItemComment> | undefined;
+          if (input.parentCommentId) {
+            const index = need(
+              await this.db.get<{ key: string }>(
+                pk,
+                `COMMENT_ID#${itemKey(slug, id)}#${input.parentCommentId}`,
+              ),
+              "Parent comment not found on this item",
+            );
+            parent = need(
+              await this.db.get<WorkItemComment>(pk, index.value.key),
+            );
+            if (
+              input.parentCommentVersion &&
+              input.parentCommentVersion !== parent.version
+            )
+              throw new HttpError(
+                412,
+                "Parent comment changed. Read it before replying.",
+              );
+          } else if (input.parentCommentVersion)
+            throw new HttpError(
+              400,
+              "Parent comment version requires a parent comment",
+            );
           const value: WorkItemComment = {
             ...input,
+            ...(parent ? { parentCommentVersion: parent.version } : {}),
+            ...(importing
+              ? {
+                  importedEvidence: {
+                    historical: true as const,
+                    source: (parsed as any).source,
+                    historicalApprovals: (parsed as any).historicalApprovals,
+                    importedAt: now(),
+                    importedBy: req.principal,
+                  },
+                }
+              : {}),
             id: randomUUID(),
             project: slug,
             itemId: id,
@@ -745,8 +999,12 @@ export class Service {
           const key = `${prefix}${value.createdAt}#${value.id}`;
           return {
             response: { status: 201, body: value },
-            action: "comment.created",
+            after: value,
+            action: importing ? "comment.imported" : "comment.created",
             target: id,
+            checks: parent
+              ? [{ pk: parent.pk, sk: parent.sk, version: parent.version }]
+              : [],
             writes: [
               {
                 row: row(pk, key, value),
@@ -774,16 +1032,18 @@ export class Service {
       if (!id && method === "GET")
         return {
           status: 200,
-          body: await this.page<WorkItem>(pk, "ITEM#", req),
+          body: await this.itemPage(pk, req),
         };
       if (!id && method === "POST") {
         const input = itemInput.parse(req.body);
-        this.requireRole(
-          membership,
-          input.kind === "Task" ? "User" : "Maintainer",
-        );
+        this.requireRole(membership, "Maintainer");
         return this.mutate(req, membership, project, async () => {
-          await this.validateItem(slug, input);
+          const checks = await this.validateItem(
+            slug,
+            input,
+            true,
+            req.principal,
+          );
           const ordinal = project.value.sequence + 1;
           if (ordinal > 999999999999)
             throw new HttpError(409, "Project identifier space exhausted");
@@ -802,10 +1062,16 @@ export class Service {
           };
           return {
             response: { status: 201, body: value, headers: { etag: '"1"' } },
+            after: value,
+            checks,
             action: "item.created",
             target: value.id,
             writes: [
               { row: row(pk, itemKey(slug, value.id), value), expected: null },
+              {
+                row: row(pk, `ITEM_REV#${value.id}#000000000001`, value),
+                expected: null,
+              },
               {
                 row: row(pk, "META", {
                   ...project.value,
@@ -824,6 +1090,8 @@ export class Service {
           await this.db.get<WorkItem>(pk, itemKey(slug, id)),
           "Work item not found",
         );
+        if (current.value.deletedAt)
+          throw new HttpError(404, "Work item not found");
         if (method === "GET")
           return {
             status: 200,
@@ -831,10 +1099,7 @@ export class Service {
             headers: { etag: `"${current.version}"` },
           };
         if (method === "PATCH") {
-          this.requireRole(
-            membership,
-            current.value.kind === "Task" ? "User" : "Maintainer",
-          );
+          this.requireRole(membership, "Maintainer");
           this.expected(req, current);
           const patch = itemPatch.parse(req.body);
           return this.mutate(req, membership, project, async () => {
@@ -846,10 +1111,15 @@ export class Service {
               updatedBy: req.principal,
               attribution: this.attribution(req),
             };
-            await this.validateItem(
+            const checks = await this.validateItem(
               slug,
               value,
               value.assignee !== current.value.assignee,
+              req.principal,
+              {
+                dependencies: patch.dependencies !== undefined,
+                relatedTasks: patch.relatedTasks !== undefined,
+              },
             );
             return {
               response: {
@@ -857,10 +1127,58 @@ export class Service {
                 body: value,
                 headers: { etag: `"${value.version}"` },
               },
+              before: current.value,
+              after: value,
+              checks,
               action: "item.updated",
               target: id,
               writes: [
                 { row: row(pk, current.sk, value), expected: current.version },
+                ...(await this.itemRevisionWrites(pk, current.value, value)),
+              ],
+            };
+          });
+        }
+        if (method === "DELETE") {
+          this.requireRole(membership, "Maintainer");
+          this.expected(req, current);
+          return this.mutate(req, membership, project, async () => {
+            const value = {
+              ...current.value,
+              deletedAt: now(),
+              updatedAt: now(),
+              updatedBy: req.principal,
+              attribution: this.attribution(req),
+              version: current.version + 1,
+            };
+            let after: string | undefined;
+            do {
+              const page = await this.db.query<WorkItem>(
+                pk,
+                "ITEM#",
+                100,
+                after,
+              );
+              if (
+                page.rows.some(
+                  (r) => !r.value.deletedAt && r.value.parentId === id,
+                )
+              )
+                throw new HttpError(
+                  409,
+                  "Delete child items before deleting this item",
+                );
+              after = page.next;
+            } while (after);
+            return {
+              response: { status: 204, body: null },
+              action: "item.deleted",
+              target: id,
+              before: current.value,
+              after: value,
+              writes: [
+                { row: row(pk, current.sk, value), expected: current.version },
+                ...(await this.itemRevisionWrites(pk, current.value, value)),
               ],
             };
           });
@@ -869,7 +1187,7 @@ export class Service {
     }
     if (child === "docs" && id && roles.includes(id as Role)) {
       const tree = id as Role;
-      this.requireRole(membership, tree);
+      if (method !== "GET") this.requireRole(membership, "Maintainer");
       const documentId = action;
       if (!documentId && method === "GET")
         return {
@@ -903,6 +1221,7 @@ export class Service {
           };
           return {
             response: { status: 201, body: value, headers: { etag: '"1"' } },
+            after: value,
             action: "document.created",
             target: uuid,
             writes: [
@@ -951,6 +1270,7 @@ export class Service {
             );
             return {
               response: { status: 204, body: undefined },
+              before: current.value,
               action: "document.deleted",
               target: documentId,
               writes: [
@@ -1055,6 +1375,8 @@ export class Service {
                 body: value,
                 headers: { etag: `"${value.version}"` },
               },
+              before: current.value,
+              after: value,
               action: "document.updated",
               target: documentId,
               writes: [
@@ -1123,11 +1445,113 @@ export class Service {
       },
     };
   }
+  async itemPage(pk: string, req: Request) {
+    const result = await this.page<WorkItem>(pk, "ITEM#", req);
+    return { ...result, items: result.items.filter((item) => !item.deletedAt) };
+  }
+  async itemRevisionWrites(
+    pk: string,
+    before: WorkItem,
+    after: WorkItem,
+  ): Promise<Write[]> {
+    const key = (v: number) =>
+      `ITEM_REV#${before.id}#${String(v).padStart(12, "0")}`;
+    const writes: Write[] = [
+      { row: row(pk, key(after.version), after), expected: null },
+    ];
+    // Backfill the last known pre-upgrade snapshot, never invent older history.
+    if (!(await this.db.get(pk, key(before.version))))
+      writes.push({
+        row: row(pk, key(before.version), before),
+        expected: null,
+      });
+    return writes;
+  }
+  async validateTaskLinks(
+    value: Partial<WorkItem>,
+    principal: string,
+    fields = { dependencies: true, relatedTasks: true },
+  ) {
+    const checks = new Map<string, Check>();
+    const load = async (id: string) => {
+      const slug = id.split("-")[0];
+      const member = await this.membership(principal, slug);
+      const project = need(
+        await this.db.get<Project>(projectKey(slug), "META"),
+      );
+      if (project.value.deletedAt)
+        throw new HttpError(404, "Linked project not found");
+      // Retain the first observed version: overwriting it could hide a graph
+      // mutation between reads of two linked tasks in the same remote project.
+      if (!checks.has(member.pk + member.sk))
+        checks.set(member.pk + member.sk, {
+          pk: member.pk,
+          sk: member.sk,
+          version: member.version,
+        });
+      if (!checks.has(project.pk + project.sk))
+        checks.set(project.pk + project.sk, {
+          pk: project.pk,
+          sk: project.sk,
+          version: project.version,
+        });
+      if (checks.size > 70)
+        throw new HttpError(400, "Too many linked projects");
+      const target = need(
+        await this.db.get<WorkItem>(projectKey(slug), itemKey(slug, id)),
+        "Linked task not found",
+      );
+      if (target.value.kind !== "Task" || target.value.deletedAt)
+        throw new HttpError(400, "Relationships must reference active tasks");
+      return target.value;
+    };
+    for (const id of new Set([
+      ...(fields.dependencies ? (value.dependencies ?? []) : []),
+      ...(fields.relatedTasks ? (value.relatedTasks ?? []) : []),
+    ])) {
+      if (id === value.id)
+        throw new HttpError(400, "A task cannot link to itself");
+      await load(id);
+    }
+    // Reject dependency cycles; related links deliberately carry no scheduling semantics.
+    const visited = new Set<string>();
+    const visit = async (id: string): Promise<void> => {
+      if (id === value.id) throw new HttpError(400, "Dependency cycle");
+      if (visited.has(id)) return;
+      if (visited.size >= 500)
+        throw new HttpError(
+          400,
+          "Dependency graph too large to validate safely",
+        );
+      visited.add(id);
+      const item = await load(id);
+      for (const dependency of item.dependencies ?? []) await visit(dependency);
+    };
+    if (fields.dependencies)
+      for (const id of value.dependencies ?? []) await visit(id);
+    return [...checks.values()];
+  }
   async validateItem(
     slug: string,
-    value: Pick<WorkItem, "kind" | "parentId" | "state" | "assignee">,
+    value: Pick<WorkItem, "kind" | "parentId" | "state" | "assignee"> &
+      Partial<WorkItem>,
     validateAssignee = true,
+    principal?: string,
+    linkFields = { dependencies: true, relatedTasks: true },
   ) {
+    if (
+      value.kind !== "Task" &&
+      (value.dueDate ||
+        value.dependencies?.length ||
+        value.relatedTasks?.length)
+    )
+      throw new HttpError(
+        400,
+        "Only tasks have due dates and task relationships",
+      );
+    const checks = principal
+      ? await this.validateTaskLinks(value, principal, linkFields)
+      : [];
     if (value.kind !== "Task" && value.state !== undefined)
       throw new HttpError(400, "Only tasks have a workflow state");
     if (value.kind === "Initiative") {
@@ -1143,6 +1567,7 @@ export class Service {
         ),
         "Parent not found",
       );
+      if (parent.value.deletedAt) throw new HttpError(400, "Parent is deleted");
       if (parent.value.kind !== (value.kind === "Task" ? "Epic" : "Initiative"))
         throw new HttpError(400, "Invalid parent type");
     }
@@ -1151,5 +1576,6 @@ export class Service {
       if (!(await this.db.get(key.pk, key.sk)))
         throw new HttpError(400, "Assignee must be a project member");
     }
+    return checks;
   }
 }

@@ -526,7 +526,7 @@ main {
 }
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(170px, 1fr));
+  grid-template-columns: repeat(6, minmax(170px, 1fr));
   gap: 14px;
   align-items: start;
   overflow-x: auto;
@@ -1257,7 +1257,7 @@ form .description-input {
     font-size: 10px;
   }
   .board {
-    grid-template-columns: repeat(5, 200px);
+    grid-template-columns: repeat(6, 200px);
   }
   .docs-layout {
     display: block;
@@ -1635,4 +1635,80 @@ textarea::placeholder {
 .markdown-editor .cm-selectionBackground,
 .markdown-editor .cm-focused .cm-selectionBackground {
   background: var(--selection);
+}
+
+/* Workflow history, decision threads and task relationships. */
+.item-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.item-fields:disabled {
+  opacity: 0.85;
+}
+.comment-replies {
+  margin-left: min(1.25rem, 3vw);
+  border-left: 2px solid var(--border, #d8dedb);
+  padding-left: 0.75rem;
+}
+.comment-thread {
+  min-width: 0;
+}
+.task-comment {
+  scroll-margin: 4rem;
+}
+.task-comment:target {
+  outline: 2px solid #367b61;
+  outline-offset: 3px;
+}
+.comment-permalink {
+  display: inline-block;
+  font-size: 0.78rem;
+  margin: 0.4rem 0;
+}
+.comment-reactions {
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.comment-reactions li {
+  margin: 0.5rem 0;
+}
+.reply-context {
+  padding: 0.65rem;
+  background: #f2f5f3;
+  margin: 0.75rem 0;
+  border-radius: 0.4rem;
+}
+.item-history {
+  padding: 1rem 0;
+  border-top: 1px solid #d8dedb;
+  margin-top: 1rem;
+}
+.item-history details {
+  margin: 0.75rem 0;
+}
+.item-history dd {
+  margin: 0.2rem 0 0.6rem;
+}
+.history-link,
+.task-links a {
+  margin-right: 0.6rem;
+}
+.cancelled .status-dot {
+  background: #8e6868;
+}
+.state-pill.cancelled {
+  background: #f0e6e6;
+  color: #754f4f;
+}
+
+.imported-evidence {
+  padding: 0.75rem;
+  background: #f5f3e9;
+  border-left: 3px solid #9b8d50;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
 }

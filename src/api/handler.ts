@@ -45,6 +45,7 @@ export async function handler(event: any) {
       headers: event.headers ?? {},
       query: event.queryStringParameters ?? {},
       principal,
+      origin: event.rawPath.startsWith("/agent/") ? "agent" : "web",
       userName: ["POST", "PATCH", "DELETE"].includes(
         event.requestContext.http.method,
       )

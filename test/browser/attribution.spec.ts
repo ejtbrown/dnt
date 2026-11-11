@@ -20,7 +20,7 @@ test("MCP writes appear as the account via the agent in comments, document histo
     }),
   );
   const call = async (name: string, args: Record<string, unknown>) => {
-    const r = await client.callTool({ name, arguments: args });
+    const r = await client.callTool({ name, arguments: { agentName: "Browser Test Agent", ...args } });
     expect(r.isError).toBeFalsy();
     return (r.structuredContent as any).result;
   };

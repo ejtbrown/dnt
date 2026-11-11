@@ -23,26 +23,26 @@ Example prompts:
 
 ## Complete tool catalog
 
-| Tools | Product capability |
-| --- | --- |
-| `get_identity`, `get_profile` | Current principal, project creation eligibility, stable account profile |
-| `list_projects`, `get_project`, `create_project`, `delete_project` | Project discovery, creation, and soft deletion |
-| `list_work_items`, `get_work_item`, `create_work_item`, `update_work_item` | Initiatives, Epics, Tasks, hierarchy, assignment, descriptions, all five task states |
-| `list_documents`, `get_document`, `create_document`, `update_document`, `delete_document` | All three nested documentation trees, Markdown content, opt-in public sharing, and page deletion |
-| `resolve_document_link`, `get_public_document` | Resolve direct document links with project permissions, or read the public projection of a shared page |
-| `list_document_revisions`, `get_document_revision`, `compare_document_revisions`, `restore_document_revision` | Revision history, historical reads, arbitrary title/Markdown comparisons, restoration as a new revision |
-| `list_work_item_comments`, `create_work_item_comment`, `update_work_item_comment`, `list_work_item_comment_revisions` | Markdown comments on all work item kinds, edits, immutable history, author and editor attribution |
-| `list_members`, `set_member`, `remove_member` | Project role grants, role changes, and revocation |
-| `list_project_users`, `get_project_groups`, `list_project_group_users`, `reconcile_project_groups` | Search existing Cognito accounts, inspect group membership and synchronization, retry provisioning/cleanup |
-| `list_audit_events` | Mutation audit history |
+| Tools                                                                                                                 | Product capability                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `get_identity`, `get_profile`                                                                                         | Current principal, project creation eligibility, stable account profile                                    |
+| `list_projects`, `get_project`, `create_project`, `delete_project`                                                    | Project discovery, creation, and soft deletion                                                             |
+| `list_work_items`, `get_work_item`, `create_work_item`, `update_work_item`                                            | Initiatives, Epics, Tasks, hierarchy, assignment, descriptions, all five task states                       |
+| `list_documents`, `get_document`, `create_document`, `update_document`, `delete_document`                             | All three nested documentation trees, Markdown content, opt-in public sharing, and page deletion           |
+| `resolve_document_link`, `get_public_document`                                                                        | Resolve direct document links with project permissions, or read the public projection of a shared page     |
+| `list_document_revisions`, `get_document_revision`, `compare_document_revisions`, `restore_document_revision`         | Revision history, historical reads, arbitrary title/Markdown comparisons, restoration as a new revision    |
+| `list_work_item_comments`, `create_work_item_comment`, `update_work_item_comment`, `list_work_item_comment_revisions` | Markdown comments on all work item kinds, edits, immutable history, author and editor attribution          |
+| `list_members`, `set_member`, `remove_member`                                                                         | Project role grants, role changes, and revocation                                                          |
+| `list_project_users`, `get_project_groups`, `list_project_group_users`, `reconcile_project_groups`                    | Search existing Cognito accounts, inspect group membership and synchronization, retry provisioning/cleanup |
+| `list_audit_events`                                                                                                   | Mutation audit history                                                                                     |
 
-There are 33 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, full-text search, hard deletion of projects/items, or identity invitations; MCP does not imply those capabilities.
+There are 40 tools. A regression test compares their operation identifiers with every operation in `public/openapi.json` and exercises the full lifecycle using the official MCP client. Profile and restoration are additional convenience tools. The product currently has no attachments, full-text search, hard deletion of projects/items, or identity invitations; MCP does not imply those capabilities.
 
 Creates require an `idempotencyKey`; reuse the same key and identical input only when retrying the same create. Updates and removals require `expectedVersion` from a recent read. Existing membership changes also require that version. Lists accept `limit` (default 25, maximum 100; Cognito user listings maximum 60) and `cursor`; continue using `nextCursor` until absent. Large results may require a smaller page size. Successful product results are returned both as JSON text and under `structuredContent.result`. The profile tool returns its declared top-level profile object. Tool failures have `isError: true`; permission and conflict errors preserve the API status in their text.
 
 ## Agent attribution on every write
 
-Every write tool accepts an optional top-level `agentName`. Supply your agent's name on **every** mutation, including project creation, task creation/updates, comments, documentation creation/updates/restoration, and membership grants/removal. Read tools do not accept this parameter. The name is trimmed, limited to 80 characters, and must be a single line without control or direction-changing characters.
+Every write tool requires a top-level `agentName`. Supply your agent's name on **every** mutation, including project creation, task creation/updates, comments, documentation creation/updates/restoration, and membership grants/removal. Read tools do not accept this parameter. The name is trimmed, limited to 80 characters, and must be a single line without control or direction-changing characters.
 
 ```json
 {
@@ -58,13 +58,13 @@ For `update_work_item`, this records an attribution such as **Erick Brown via Re
 
 Attribution snapshots are saved with every mutation's audit event, each document revision, work-item updates, and comments. The UI uses them in document history, page and work-item bylines, work item comments and their edit history, and the Administrator's Activity view. Restoration records the agent performing the restoration; the source revision keeps its original author. A later human or untagged edit replaces the current byline without carrying forward an earlier agent name.
 
-Reuse the same `agentName`, input, and idempotency key on retries. Reusing a create key with a different agent name returns a conflict and never rewrites the original attribution. Calls without `agentName` remain valid and show the account alone. When a display name is unavailable, dnt uses a verified account email if present, otherwise the principal.
+Reuse the same `agentName`, input, and idempotency key on retries. Reusing a create key with a different agent name returns a conflict and never rewrites the original attribution. Write calls without `agentName` are rejected. The server also records the MCP transport source; the name itself remains self-reported. When a display name is unavailable, dnt uses a verified account email if present, otherwise the principal.
 
 Refresh the dnt plugin's tool metadata in ChatGPT to discover the new arguments and comment tools. Ask your agent to use its chosen name on every dnt write.
 
 Comments are available on Initiatives, Epics, and Tasks through `list_work_item_comments` and `create_work_item_comment`, and GET/POST `/projects/{project}/items/{id}/comments`. Project members can read and post. The author or a project Administrator can edit with `update_work_item_comment` or PATCH `.../comments/{commentId}`, requiring the current version. `list_work_item_comment_revisions` and GET `.../comments/{commentId}/revisions` expose every saved version. Lists are paginated oldest first. Markdown is limited to 20,000 characters and preserved without trimming. The UI renders it safely and offers syntax-colored source editing, preview, and history. Original authorship and editor attribution are separate. REST bodies cannot set either attribution.
 
-`compare_document_revisions` takes `project`, `tree`, `documentId`, `fromRevision`, and `toRevision` (for example 3 and 20). REST uses GET `/projects/{project}/docs/{tree}/{id}/compare?from=3&to=20`. The result includes both revisions’ metadata and ordered `title`/`content` segments (`unchanged`, `added`, `removed`). Removing added segments reconstructs the exact earlier text; removing removed segments reconstructs the later text. Comparisons preserve whitespace and line endings. A bounded computation falls back to complete removed/added text for large changes and sets `simplified: true`. Historical reads and comparisons require current tree access. Restoring creates a new revision and leaves all prior versions intact.
+`compare_document_revisions` takes `project`, `tree`, `documentId`, `fromRevision`, and `toRevision` (for example 3 and 20). REST uses GET `/projects/{project}/docs/{tree}/{id}/compare?from=3&to=20`. The result includes both revisions’ metadata and ordered `title`/`content` segments (`unchanged`, `added`, `removed`). Removing added segments reconstructs the exact earlier text; removing removed segments reconstructs the later text. Comparisons preserve whitespace and line endings. A bounded computation falls back to complete removed/added text for large changes and sets `simplified: true`. Historical reads and comparisons require current project membership. Restoring creates a new revision and leaves all prior versions intact.
 
 ## Transport and authorization
 
@@ -97,13 +97,13 @@ Register `config/cognito-mcp-application.json` in the shared identity project. S
 
 Run `npm run check` for transport, full product parity, OAuth consent/PKCE/replay/rotation/revocation, Cognito signature verification, permission, and infrastructure checks. Browser tests cover the existing UI. `npm run smoke:mcp` verifies the deployed endpoint with a temporary synthetic account that has no memberships; see the script for its exact isolated OAuth record cleanup. It requires operator AWS credentials. It does not sign in as a real person or prove the human MFA flow.
 
-For manual verification, connect the plugin and exercise discovery, sign-in, permitted reads/writes, denied tree access, stale versions, and refresh. Inspect logs for errors without recording tokens or authorization codes. The server never logs request bodies or tokens.
+For manual verification, connect the plugin and exercise discovery, sign-in, permitted reads/writes, denied cross-project access and denied User writes, stale versions, and refresh. Inspect logs for errors without recording tokens or authorization codes. The server never logs request bodies or tokens.
 
 OAuth recovery requires care: restoring an old OAuth table can resurrect revoked grants or used refresh tokens. Prefer a fresh empty OAuth table and require reconnection after recovery rather than restoring old credential state. Product data recovery is independent.
 
 ## Project Cognito groups
 
-Project creation queues `dnt-proj-<SLUG>-admin`, `dnt-proj-<SLUG>-maintainer`, and `dnt-proj-<SLUG>-viewer` in the shared pool. Use `list_project_users` to find an existing account by email prefix, then `set_member` with its immutable principal. Roles map Administrator → admin, Maintainer → maintainer, User → viewer. User retains its existing task and User-document editing permissions. Each person has one assigned role; higher roles inherit lower permissions. IAM principals remain dnt-only memberships.
+Project creation queues `dnt-proj-<SLUG>-admin`, `dnt-proj-<SLUG>-maintainer`, and `dnt-proj-<SLUG>-viewer` in the shared pool. Use `list_project_users` to find an existing account by email prefix, then `set_member` with its immutable principal. Roles map Administrator → admin, Maintainer → maintainer, User → viewer. User is read-only for tasks and all documentation trees. Maintainer edits content in every tree; Administrator additionally manages membership. Each person has one assigned role; higher roles inherit lower permissions. IAM principals remain dnt-only memberships.
 
 `set_member` and `remove_member` change access immediately and queue Cognito synchronization. Poll `get_project_groups` for `ready`; use `list_project_group_users` to inspect actual group users. dnt memberships remain authoritative. External Cognito changes do not grant dnt access and are overwritten by reconciliation. Retry errors with `reconcile_project_groups` and a new idempotency key. These administration tools require project Administrator permission. All write tools accept `agentName` and record attribution.
 
@@ -117,8 +117,18 @@ Use `list_projects` with `includeDeleted: true` to discover deleted projects you
 
 ## Direct links and public pages
 
-Work item and document responses include `url`. Work items use `/t/<project>-<ordinal>`; documents use `/d/<user|maintainer|admin>-<UUID>`. Pass the portion after `/d/` as `reference` to `resolve_document_link` to read the page with normal tree permissions, or `get_public_document` to read only its current public title and Markdown. There is no public listing or history. The public REST read is GET `/api/v1/public/documents/{reference}`, without authentication; MCP tool execution still uses account linking.
+Work item and document responses include `url`. Work items use `/t/<project>-<ordinal>`; documents use `/d/<user|maintainer|admin>-<UUID>`. Pass the portion after `/d/` as `reference` to `resolve_document_link` to read the page with normal project membership, or `get_public_document` to read only its current public title and Markdown. There is no public listing or history. The public REST read is GET `/api/v1/public/documents/{reference}`, without authentication; MCP tool execution still uses account linking.
 
 Documents default to `public: false`. Set `input.public` on `create_document`, or `patch.public` on `update_document`, to publish or revoke. Publication changes are versioned and attributed like edits. Restoring content preserves the current publication choice. Public access never grants edit or history access. Deleted pages, private pages, and pages in deleted projects return the same public 404 response.
 
-`delete_document` requires the current `expectedVersion` and the same tree role as editing. Delete children first; deleting a parent with children fails without changing it. Deletion removes the current page and direct-link lookup atomically; immutable revisions remain private and unavailable through the product. Supply `agentName` on publication changes and deletion as on every write.
+`delete_document` requires the current `expectedVersion` and Maintainer or Administrator. Delete children first; deleting a parent with children fails without changing it. Deletion removes the current page and direct-link lookup atomically; immutable revisions remain private and unavailable through the product. Supply `agentName` on publication changes and deletion as on every write.
+
+## Workflow extensions
+
+`list_work_item_revisions` and `get_work_item_revision` expose immutable task scope/state history. Work item create/patch schemas support `dueDate` (optional calendar date), `dependencies` and `relatedTasks` (full Task IDs), plus `Cancelled`. `delete_work_item` is a version-checked soft deletion with retained revisions.
+
+`create_work_item_comment.input.parentCommentId` and optional `parentCommentVersion` create replies to comments or replies; the server records the exact parent revision. `react_to_comment` requires explicit `approval` or `acknowledgement` and current `commentVersion`. `list_comment_reactions` exposes the distinction and any withdrawal; `withdraw_comment_reaction` can only withdraw the caller's own reaction. Every write requires `agentName`; approvals must not be inferred from unrelated content or the agent display name.
+
+`import_work_item_comment` retains source metadata and historical approval labels without impersonating the original actor or creating new live approval. See [workflow.md](workflow.md). Actual Jira migration is separate and must be verified.
+
+Task and document changes also produce a private [metadata-only SNS feed](change-events.md). MCP remains stateless HTTP; this does not create a persistent notification connection or automatically wake a ChatGPT dot. An authorized event receiver must be connected separately.

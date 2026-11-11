@@ -28,30 +28,28 @@ For an existing Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to i
 - Projects with independent User, Maintainer, and Administrator membership grants.
 - Three nested Markdown documentation trees per project, syntax-colored native Markdown editing, formatted history, arbitrary revision comparisons, and restoration through the editor.
 - Initiatives → Epics → Tasks, with validated same-project parents and optional member assignment.
-- Tasks in **Concept**, **Implement**, **Needs Attention**, **Review**, and **Done**; draggable board and editable hierarchy.
-- Markdown descriptions and editable comments on Initiatives, Epics, and Tasks, with retained comment history and consistent author attribution: MCP writes can show **user name via agent name** in comments, document history, work-item details, and project activity.
+- Tasks in **Concept**, **Implement**, **Needs Attention**, **Review**, **Done**, and **Cancelled**; draggable board and editable hierarchy.
+- Markdown descriptions and editable comments on Initiatives, Epics, and Tasks, with retained comment history and consistent author attribution: MCP writes must identify the agent and show **user name via agent name** in comments, document history, work-item details, and project activity.
 - A single project-wide identifier sequence across all work item types, such as `ROOT-1`, `ROOT-2`, `ROOT-3`. An initiative may take `ROOT-1`, so the first task is not necessarily ordinal 1. IDs remain stable when work is moved between compatible parents.
 - A versioned REST-style JSON API with an [OpenAPI contract](public/openapi.json), pagination, required idempotency keys for creates, optimistic concurrency for edits, and mutation audit records.
 - Shared sign-in authorization-code + PKCE login backed by Cognito for people; IAM/SigV4 access for agents. Every operation also checks project membership.
-- A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with 33 tools and OAuth account linking for ChatGPT and compatible clients.
+- A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with versioned workflow tools and OAuth account linking for ChatGPT and compatible clients.
 - CloudFront → API Gateway HTTP API → Lambda, private S3 origins for the web application, private S3 content storage, and on-demand DynamoDB tables for product records and OAuth grants.
 - GitHub Actions jobs hosted by CodeBuild; CDK deployment from `main` through a separate OIDC role.
 
 ## Permission model
 
-Roles inherit lower roles. The first version interprets documentation trees as visibility boundaries; this is a product assumption, not an unavoidable storage limitation.
+Roles apply across all project content. Documentation trees organize audiences, not access boundaries.
 
-| Operation | User | Maintainer | Administrator |
-| --- | --- | --- | --- |
-| Read project and all work items | Yes | Yes | Yes |
-| Read/post comments and edit own comments | Yes | Yes | Yes |
-| Edit another author’s comment | No | No | Yes |
-| Create/update tasks and assign them to members | Yes | Yes | Yes |
-| Create/update initiatives and epics | No | Yes | Yes |
-| Read/write User documentation | Yes | Yes | Yes |
-| Read/write Maintainer documentation | No | Yes | Yes |
-| Read/write Administrator documentation | No | No | Yes |
-| Manage membership / read audit records | No | No | Yes |
+| Operation                                             | User | Maintainer | Administrator |
+| ----------------------------------------------------- | ---- | ---------- | ------------- |
+| Read tasks, comments and every documentation tree     | Yes  | Yes        | Yes           |
+| Add/edit content, replies and explicit reactions      | No   | Yes        | Yes           |
+| Delete work items (recoverable history) and documents | No   | Yes        | Yes           |
+| Manage project membership/invite existing accounts    | No   | No         | Yes           |
+| Read full project audit                               | No   | No         | Yes           |
+
+Task scope/state revisions and before/after audit events are immutable. Tasks support Cancelled, optional due dates, cross-project dependency and related-task IDs. Replies link the exact parent revision, and thumbs-up is explicitly either approval or acknowledgement. Historical Jira evidence can be imported without manufacturing a new live approval. See [workflow and migration](workflow.md) and [change notifications](change-events.md).
 
 Creating and deleting projects requires current membership in the shared Cognito `dnt-admin` group. Deletion also requires Administrator access to the target project. Creation grants the creator Administrator on that project; the global group does not grant access to other projects. Identity operators manage `dnt-admin` membership in Cognito. IAM principals cannot create or delete projects. The final project Administrator cannot be removed or demoted.
 

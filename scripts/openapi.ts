@@ -3,6 +3,9 @@ import { z } from "zod";
 import {
   docInput,
   commentInput,
+  commentPatch,
+  commentImportInput,
+  reactionInput,
   docPatch,
   itemInput,
   itemPatch,
@@ -53,6 +56,10 @@ const item = object(
     description: string,
     state: { enum: states },
     assignee: { type: ["string", "null"] },
+    dueDate: { type: ["string", "null"], format: "date" },
+    dependencies: { type: "array", items: string },
+    relatedTasks: { type: "array", items: string },
+    deletedAt: date,
     version,
     createdAt: date,
     updatedAt: date,
@@ -106,6 +113,7 @@ const schemas: Record<string, unknown> = {
       principal: string,
       userName: string,
       agentName: { type: "string", maxLength: 80 },
+      source: { enum: ["web", "mcp", "agent", "unknown"] },
     },
     ["principal", "userName"],
   ),
@@ -114,6 +122,10 @@ const schemas: Record<string, unknown> = {
       id: { type: "string", format: "uuid" },
       project: string,
       itemId: string,
+      url: { type: "string", format: "uri" },
+      parentCommentId: { type: ["string", "null"] },
+      parentCommentVersion: version,
+      importedEvidence: { type: "object" },
       updatedAt: date,
       updatedBy: string,
       editAttribution: ref("Attribution"),
@@ -132,6 +144,33 @@ const schemas: Record<string, unknown> = {
       "createdAt",
       "createdBy",
       "attribution",
+    ],
+  ),
+  CommentReaction: object(
+    {
+      id: string,
+      project: string,
+      itemId: string,
+      commentId: string,
+      commentVersion: version,
+      kind: { enum: ["approval", "acknowledgement"] },
+      principal: string,
+      attribution: ref("Attribution"),
+      createdAt: date,
+      version,
+      withdrawnAt: date,
+    },
+    [
+      "id",
+      "project",
+      "itemId",
+      "commentId",
+      "commentVersion",
+      "kind",
+      "principal",
+      "attribution",
+      "createdAt",
+      "version",
     ],
   ),
   TextDiff: object({
@@ -204,6 +243,9 @@ const schemas: Record<string, unknown> = {
   }),
   Audit: object(
     {
+      before: {},
+      after: {},
+      changedFields: { type: "array", items: string },
       action: string,
       target: string,
       principal: string,
@@ -220,6 +262,9 @@ const schemas: Record<string, unknown> = {
 for (const [name, schema] of Object.entries({
   ProjectInput: projectInput,
   CommentInput: commentInput,
+  CommentPatch: commentPatch,
+  CommentImportInput: commentImportInput,
+  ReactionInput: reactionInput,
   ItemInput: itemInput,
   ItemPatch: itemPatch,
   DocInput: docInput,
@@ -234,6 +279,7 @@ for (const name of [
   "Document",
   "Audit",
   "WorkItemComment",
+  "CommentReaction",
 ])
   schemas[`${name}Page`] = object(
     { items: { type: "array", items: ref(name) }, nextCursor: string },
@@ -420,7 +466,7 @@ route(
   "/projects/{project}/items",
   "post",
   "createWorkItem",
-  "Create an initiative, epic, or task; Maintainer required except tasks",
+  "Create an initiative, epic, or task; Maintainer required",
   "WorkItem",
   "ItemInput",
 );
@@ -453,7 +499,7 @@ route(
   "/projects/{project}/items/{id}/comments",
   "post",
   "createWorkItemComment",
-  "Add a Markdown comment to any work item; project membership required",
+  "Add a Markdown comment/reply; Maintainer required",
   "WorkItemComment",
   "CommentInput",
 );
@@ -461,9 +507,9 @@ route(
   "/projects/{project}/items/{id}/comments/{commentId}",
   "patch",
   "updateWorkItemComment",
-  "Edit a comment as its author or a project Administrator, retaining immutable history",
+  "Edit a comment as Maintainer, retaining immutable history",
   "WorkItemComment",
-  "CommentInput",
+  "CommentPatch",
   { version: true },
 );
 route(
@@ -474,6 +520,65 @@ route(
   "WorkItemCommentPage",
   undefined,
   { paginated: true },
+);
+route(
+  "/projects/{project}/items/{id}",
+  "delete",
+  "deleteWorkItem",
+  "Soft-delete a work item; Maintainer required",
+  "WorkItem",
+  undefined,
+  { version: true },
+);
+route(
+  "/projects/{project}/items/{id}/revisions",
+  "get",
+  "listWorkItemRevisions",
+  "List immutable work-item scope/state history",
+  "WorkItemPage",
+  undefined,
+  { paginated: true },
+);
+route(
+  "/projects/{project}/items/{id}/revisions/{revision}",
+  "get",
+  "getWorkItemRevision",
+  "Read an exact historical work-item version",
+  "WorkItem",
+);
+route(
+  "/projects/{project}/items/{id}/comments/{commentId}/reactions",
+  "get",
+  "listCommentReactions",
+  "List attributed approval/acknowledgement records for exact revisions",
+  "CommentReactionPage",
+  undefined,
+  { paginated: true },
+);
+route(
+  "/projects/{project}/items/{id}/comments/{commentId}/reactions",
+  "post",
+  "reactToComment",
+  "Approve or acknowledge an exact revision; Maintainer required",
+  "CommentReaction",
+  "ReactionInput",
+);
+route(
+  "/projects/{project}/items/{id}/comments/{commentId}/reactions/{reactionId}",
+  "delete",
+  "withdrawCommentReaction",
+  "Withdraw your own reaction, retaining audit",
+  "CommentReaction",
+  undefined,
+  { version: true },
+);
+route(
+  "/projects/{project}/items/{id}/comments/import",
+  "post",
+  "importWorkItemComment",
+  "Import historical evidence without creating a live approval",
+  "WorkItemComment",
+  "CommentImportInput",
 );
 route(
   "/documents/{reference}",
