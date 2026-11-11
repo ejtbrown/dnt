@@ -2,7 +2,7 @@
 
 A self-hosted workspace for small teams and AI agents: project documentation and work tracking without a server or database instance to keep running. The API is the product; the web UI is one client of it.
 
-The production deployment targets [dnt.ejtbrown.com](https://dnt.ejtbrown.com), with sign-in through the shared Cognito service at auth.ejtbrown.com. The same application runs locally and can be deployed to another AWS account using the CDK configuration.
+The production deployment targets [dnt.ejtbrown.com](https://dnt.ejtbrown.com), with sign-in through the shared Cognito service at login.auth.ejtbrown.com/signin. The same application runs locally and can be deployed to another AWS account using the CDK configuration.
 
 ## Run locally
 
@@ -32,7 +32,7 @@ For an existing Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to i
 - Markdown descriptions and editable comments on Initiatives, Epics, and Tasks, with retained comment history and consistent author attribution: MCP writes can show **user name via agent name** in comments, document history, work-item details, and project activity.
 - A single project-wide identifier sequence across all work item types, such as `ROOT-1`, `ROOT-2`, `ROOT-3`. An initiative may take `ROOT-1`, so the first task is not necessarily ordinal 1. IDs remain stable when work is moved between compatible parents.
 - A versioned REST-style JSON API with an [OpenAPI contract](public/openapi.json), pagination, required idempotency keys for creates, optimistic concurrency for edits, and mutation audit records.
-- Cognito authorization-code + PKCE login for people; IAM/SigV4 access for agents. Every operation also checks project membership.
+- Shared sign-in authorization-code + PKCE login backed by Cognito for people; IAM/SigV4 access for agents. Every operation also checks project membership.
 - A [complete MCP server](docs/mcp.md) at `https://dnt.ejtbrown.com/mcp`, with 33 tools and OAuth account linking for ChatGPT and compatible clients.
 - CloudFront → API Gateway HTTP API → Lambda, private S3 origins for the web application, private S3 content storage, and on-demand DynamoDB tables for product records and OAuth grants.
 - GitHub Actions jobs hosted by CodeBuild; CDK deployment from `main` through a separate OIDC role.
@@ -101,3 +101,5 @@ The deployment runbook includes production smoke checks and recovery procedures.
 `.codex-resume` is ignored local session state. Never commit it or delete it as cleanup.
 
 Work items have stable `/t/ROOT-1` links. Documents have `/d/user-<id>`, `/d/maintainer-<id>`, or `/d/admin-<id>` links. Opening a private link preserves the destination through sign-in. Each page has a **Public** checkbox: checked pages expose only their current formatted content to anyone with the link, without a public directory or revision history. Unchecking it revokes anonymous access. **Delete page** asks for confirmation and requires child pages to be deleted first. Deletion removes the page and its links; immutable revision content remains retained privately for recovery.
+
+Browser sign-in uses the shared identity broker. Cognito still signs API access tokens; the broker signs nonce-bound ID tokens. Password sign-in can remember MFA for seven days in a browser, with an unchanged deadline on subsequent password logins. The browser and MCP clients use distinct confidential Cognito clients whose secrets remain in the broker.

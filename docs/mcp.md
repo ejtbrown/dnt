@@ -6,7 +6,7 @@ The production MCP endpoint is **https://dnt.ejtbrown.com/mcp**. It exposes ever
 
 1. Open [ChatGPT Plugins](https://chatgpt.com/plugins), choose the plus button, then **Add custom MCP server**.
 2. Name it **dnt**, enter `https://dnt.ejtbrown.com/mcp`, and select OAuth authentication with **Client ID Metadata Document (CIMD)** registration if offered. The server trusts ChatGPT's published client identifier `https://chatgpt.com/oauth/client.json`; no client secret is needed.
-3. Create and install the plugin. Connect your account, sign in at `auth.ejtbrown.com`, complete any required password/MFA steps, and approve the requested access on dnt's consent page.
+3. Create and install the plugin. Connect your account, sign in at `login.auth.ejtbrown.com/signin`, complete any required password/MFA steps, and approve the requested access on dnt's consent page.
 4. Enable the installed plugin for your Dot in the client. Custom plugin availability and use are subject to your account/workspace policy. In a new conversation, select `@dnt` and ask it to list your projects.
 5. For writes, grant both `dnt:read` and `dnt:write`. Read-only connections can browse but cannot mutate. The client controls any additional confirmation prompts for write tools.
 

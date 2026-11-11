@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import {
   AdminGetUserCommand,
@@ -49,18 +50,22 @@ export class CognitoLogin implements LoginProvider {
     verifier: string,
     nonce: string,
   ): Promise<LoginIdentity> {
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      code_verifier: verifier,
+      client_id: this.config.clientId,
+      redirect_uri: this.config.callback,
+    }).toString();
     const response = await fetch(`${this.config.domain}/oauth2/token`, {
       method: "POST",
       redirect: "error",
       signal: AbortSignal.timeout(8000),
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        code_verifier: verifier,
-        client_id: this.config.clientId,
-        redirect_uri: this.config.callback,
-      }),
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "x-amz-content-sha256": createHash("sha256").update(body).digest("hex"),
+      },
+      body,
     });
     if (!response.ok) throw new Error("CognitoExchangeFailed");
     const tokens = await response.json();

@@ -362,7 +362,7 @@ export class AppStack extends Stack {
             override: true,
           },
           contentSecurityPolicy: {
-            contentSecurityPolicy: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${config.authDomain}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`,
+            contentSecurityPolicy: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${new URL(config.authDomain).origin}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`,
             override: true,
           },
         },

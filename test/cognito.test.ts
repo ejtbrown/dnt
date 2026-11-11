@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { CognitoLogin, verifyCognitoIdentity } from "../src/mcp/cognito.js";
 
-const issuer = "https://cognito-idp.us-east-2.amazonaws.com/test_pool",
-  clientId = "public-client",
+const issuer = "https://login.auth.ejtbrown.com/signin",
+  clientId = "broker-client",
   nonce = "independent-login-nonce";
 const sub = "11111111-1111-4111-8111-111111111111";
-test("Cognito login uses independent PKCE and verifies signature, issuer, audience, expiry, nonce, and identity claims", async () => {
+test("Shared browser login uses independent PKCE and verifies signature, issuer, audience, expiry, nonce, and identity claims", async () => {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   const jwk = await exportJWK(publicKey);
   const keys = createLocalJWKSet({

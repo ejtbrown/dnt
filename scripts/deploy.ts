@@ -16,16 +16,17 @@ const client = aws([
   "--client-id",
   config.cognitoClientId,
   "--query",
-  "UserPoolClient.{CallbackURLs:CallbackURLs,LogoutURLs:LogoutURLs,AllowedOAuthFlows:AllowedOAuthFlows,AllowedOAuthScopes:AllowedOAuthScopes,ClientId:ClientId,HasSecret:contains(keys(@), 'ClientSecret')}",
+  "UserPoolClient.{ClientName:ClientName,ExplicitAuthFlows:ExplicitAuthFlows,ClientId:ClientId,HasSecret:contains(keys(@), 'ClientSecret')}",
 ]);
 if (
-  client.HasSecret ||
-  !client.CallbackURLs?.includes(`https://${config.domain}/auth/callback`) ||
-  !client.LogoutURLs?.includes(`https://${config.domain}/`) ||
-  !client.AllowedOAuthFlows?.includes("code") ||
-  !client.AllowedOAuthScopes?.includes("openid")
+  !client.HasSecret ||
+  client.ClientName !== "dnt-browser" ||
+  !client.ExplicitAuthFlows?.includes("ALLOW_USER_PASSWORD_AUTH") ||
+  config.authDomain !== "https://login.auth.ejtbrown.com/signin"
 )
-  throw new Error("Cognito app client does not match the dnt OAuth contract");
+  throw new Error(
+    "The confidential dnt client does not match the shared browser sign-in contract",
+  );
 if (!config.mcpCognitoClientId)
   throw new Error("Register the dnt-mcp Cognito client before deployment");
 const mcpClient = aws([
@@ -38,16 +39,16 @@ const mcpClient = aws([
   "--client-id",
   config.mcpCognitoClientId,
   "--query",
-  "UserPoolClient.{CallbackURLs:CallbackURLs,AllowedOAuthFlows:AllowedOAuthFlows,AllowedOAuthScopes:AllowedOAuthScopes,HasSecret:contains(keys(@), 'ClientSecret')}",
+  "UserPoolClient.{ClientName:ClientName,ExplicitAuthFlows:ExplicitAuthFlows,HasSecret:contains(keys(@), 'ClientSecret')}",
 ]);
 if (
-  mcpClient.HasSecret ||
-  mcpClient.CallbackURLs?.length !== 1 ||
-  mcpClient.CallbackURLs[0] !== `https://${config.domain}/oauth/callback` ||
-  !mcpClient.AllowedOAuthFlows?.includes("code") ||
-  !mcpClient.AllowedOAuthScopes?.includes("openid")
+  !mcpClient.HasSecret ||
+  mcpClient.ClientName !== "dnt-mcp-browser" ||
+  !mcpClient.ExplicitAuthFlows?.includes("ALLOW_USER_PASSWORD_AUTH")
 )
-  throw new Error("MCP Cognito client does not match the broker contract");
+  throw new Error(
+    "The confidential MCP client does not match the shared browser sign-in contract",
+  );
 cdk(["synth", "--strict", "--quiet"]);
 cdk(["diff", "dnt-certificate", "dnt-data", "--fail-on", "never"]);
 cdk(["deploy", "dnt-certificate", "dnt-data", "--require-approval", "never"]);

@@ -10,7 +10,7 @@ const broker = new OAuthBroker(
   new DynamoStore(process.env.OAUTH_TABLE!),
   new MetadataClients(JSON.parse(process.env.MCP_CLIENT_METADATA_URLS ?? "[]")),
   new CognitoLogin({
-    issuer: process.env.COGNITO_ISSUER!,
+    issuer: process.env.AUTH_DOMAIN!,
     poolId: process.env.COGNITO_POOL_ID!,
     clientId: process.env.MCP_COGNITO_CLIENT_ID!,
     domain: process.env.AUTH_DOMAIN!,

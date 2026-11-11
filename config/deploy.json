@@ -7,15 +7,15 @@
   "repository": "ejtbrown/dnt",
   "connectionArn": "arn:aws:codeconnections:us-east-2:264702148921:connection/83f3ee78-3e8c-4a48-b0b1-966890645b7c",
   "cognitoPoolId": "us-east-2_yRwS7loCA",
-  "cognitoClientId": "1at2j6h43a2vcjrdo7qb7me03o",
-  "authDomain": "https://auth.ejtbrown.com",
+  "cognitoClientId": "1i0f1djgak96e8v5r8etc80vpo",
+  "authDomain": "https://login.auth.ejtbrown.com/signin",
   "agentRoles": [],
   "repositoryOwnerId": "9349498",
   "repositoryId": "1451000902",
   "runnerActorIds": [
     "9349498"
   ],
-  "mcpCognitoClientId": "4gd2604sj3s1e8koqj0vutnj9q",
+  "mcpCognitoClientId": "3bo4e4vf6quhsh82c88l4rjv9",
   "mcpClientMetadataUrls": [
     "https://chatgpt.com/oauth/client.json"
   ]
