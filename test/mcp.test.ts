@@ -490,11 +490,8 @@ test("HTTP validates Origin, bearer tokens, protocol versions and content negoti
   const response = await f.http(new Request(`${origin}/mcp`));
   assert.equal(response.status, 401);
   assert.match(response.headers.get("www-authenticate")!, /resource_metadata/);
-  assert.equal(
-    (await f.http(rpc("tools/list", {}, { origin: "https://evil.example" })))
-      .status,
-    403,
-  );
+  for (const origin of ["https://evil.example", "null"])
+    assert.equal((await f.http(rpc("tools/list", {}, { origin }))).status, 403);
   assert.equal(
     (await f.http(rpc("tools/list", {}, { authorization: "Bearer invalid" })))
       .status,

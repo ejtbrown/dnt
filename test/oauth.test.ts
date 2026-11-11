@@ -122,6 +122,7 @@ test("browser binding, explicit consent, CSRF, and one-use callback prevent sile
   );
   for (const headers of [
     { cookie: start.cookie, origin: "https://evil.example" },
+    { cookie: start.cookie, origin: "null" },
     { cookie: "wrong", origin },
   ]) {
     assert.equal(
