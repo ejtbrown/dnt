@@ -396,8 +396,14 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
       headers: {
         ...baseHeaders,
         "content-type": "text/html; charset=utf-8",
+        // no-referrer makes native form POSTs send Origin: null, which our
+        // origin checks reject. Preserve the origin without leaking the
+        // callback's authorization code or state through Referer.
+        "referrer-policy": "strict-origin",
+        // Browsers also enforce form-action on the POST's redirect. This
+        // destination was exactly matched against the trusted client metadata.
         "content-security-policy":
-          "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+          `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self' ${new URL(value.redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`,
         "x-frame-options": "DENY",
       },
     });
