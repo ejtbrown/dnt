@@ -82,7 +82,7 @@ test("all work item types share a project sequence, with typed parents", async (
     "POST",
     "/projects/ROOT/items",
     { kind: "Task", title: "Task", parentId: epic.id },
-    user,
+    maintainer,
   );
   assert.equal(task.status, 201);
   assert.equal(task.body.id, "ROOT-3");
@@ -163,7 +163,7 @@ test("parallel creates allocate distinct ordered identifiers and retries are ide
     409,
   );
 });
-test("all five task states are accepted and stale updates do not overwrite changes", async () => {
+test("all task states are accepted and stale updates do not overwrite changes", async () => {
   const { request, epic } = await setup();
   let task = (
     await request("POST", "/projects/ROOT/items", {
@@ -185,13 +185,14 @@ test("all five task states are accepted and stale updates do not overwrite chang
     "Needs Attention",
     "Review",
     "Done",
+    "Cancelled",
     "Concept",
   ]) {
     const result = await request(
       "PATCH",
       `/projects/ROOT/items/${task.id}`,
       { state },
-      user,
+      maintainer,
       task.version,
     );
     assert.equal(result.status, 200);
@@ -204,7 +205,7 @@ test("all five task states are accepted and stale updates do not overwrite chang
         "PATCH",
         `/projects/ROOT/items/${task.id}`,
         { title: "Stale overwrite" },
-        user,
+        maintainer,
         1,
       )
     ).status,
@@ -216,7 +217,7 @@ test("all five task states are accepted and stale updates do not overwrite chang
         "PATCH",
         `/projects/ROOT/items/${task.id}`,
         { state: "In Progress" },
-        user,
+        maintainer,
         task.version,
       )
     ).status,
@@ -252,12 +253,12 @@ test("cross-project parents, item IDs, and non-member assignments are rejected",
     400,
   );
 });
-test("tree visibility and writes follow project roles; no privilege fields are accepted", async () => {
+test("trees organize documents; reads and writes follow project roles; no privilege fields are accepted", async () => {
   const { request } = await setup();
   assert.equal(
     (await request("GET", "/projects/ROOT/docs/Administrator", undefined, user))
       .status,
-    403,
+    200,
   );
   assert.equal(
     (
@@ -268,7 +269,7 @@ test("tree visibility and writes follow project roles; no privilege fields are a
         maintainer,
       )
     ).status,
-    403,
+    200,
   );
   assert.equal(
     (
@@ -290,7 +291,7 @@ test("tree visibility and writes follow project roles; no privilege fields are a
         user,
       )
     ).status,
-    201,
+    403,
   );
   assert.equal(
     (
@@ -326,7 +327,7 @@ test("document revisions preserve content and cannot move across trees", async (
     "PATCH",
     `/projects/ROOT/docs/User/${page.id}`,
     { content: "# Second" },
-    user,
+    maintainer,
     1,
   );
   assert.equal(update.status, 200);

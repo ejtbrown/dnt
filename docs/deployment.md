@@ -40,11 +40,11 @@ Publish an initial baseline to GitHub, install the PR-only main ruleset with `np
 
 The routine stacks are:
 
-| Stack | Region | Owns |
-| --- | --- | --- |
-| `dnt-certificate` | `us-east-1` | ACM certificate and validation |
-| `dnt-data` | `us-east-2` | Product and OAuth DynamoDB tables, content bucket |
-| `dnt-app` | `us-east-2` | API, Lambda, web bucket, CloudFront, DNS, logs, alarm |
+| Stack             | Region      | Owns                                                  |
+| ----------------- | ----------- | ----------------------------------------------------- |
+| `dnt-certificate` | `us-east-1` | ACM certificate and validation                        |
+| `dnt-data`        | `us-east-2` | Product and OAuth DynamoDB tables, content bucket     |
+| `dnt-app`         | `us-east-2` | API, Lambda, web bucket, CloudFront, DNS, logs, alarm |
 
 The synth output contains the reviewable CloudFormation templates in ignored `cdk.out/`. Strong cross-stack references deliberately protect the data stack's exported resources. Do not rename stateful constructs or remove references without a migration plan.
 
@@ -67,7 +67,7 @@ Perform these additional checks after initial deployment and relevant infrastruc
 1. Sign in through Cognito with an invited user, including the shared MFA/passkey flow. Confirm the exact callback and logout behavior. Reloading starts a new code flow because tokens stay in memory.
 2. Confirm missing tokens, ID tokens, wrong app-client tokens, and unknown project identities cannot read content.
 3. Create an initiative, epic, and task. Retry a POST with the same key and verify the original ID returns. Send two edits with the same `If-Match` and verify one fails.
-4. Read/write each permitted tree and confirm a User cannot read Maintainer or Administrator content, including old revisions.
+4. Confirm a User can read every documentation tree and old revisions but cannot create/edit/delete content. Confirm a Maintainer can edit every tree and cannot manage membership. Confirm users can withdraw only their own prior reactions.
 5. Exercise an IAM role's `/me`, project listing, and a permitted task edit. Verify the stable role identity matches its membership.
 6. Verify private S3 URLs fail, `/api/*` responses are uncached, callback routing loads the SPA, and API failures remain JSON.
 7. Check Lambda/API Gateway logs and CloudFront request metrics, provision operational alarm notifications, and test a restore into separate resources before relying on backups.
@@ -95,3 +95,9 @@ For a persistent sync error, check Members → Cognito groups and the GroupWorke
 The shared Cognito repository owns the `dnt-admin` declaration in `config/auth.json`. Deploy that manifest and add the existing operator to the group before releasing dnt enforcement. Update dnt's operator-owned runtime boundary with `npm run bootstrap` to allow `AdminListGroupsForUser` on the configured pool; HTTP Lambdas receive this read permission and the project worker does not need it. The SDK action is verified with IAM Policy Autopilot. `projectCreators` and `PROJECT_CREATORS` are removed, including their authorization fallback.
 
 Group membership is checked through Cognito on each privileged request, including idempotent creation retries. Membership changes apply to an existing authenticated session without waiting for token refresh. A failed directory lookup denies the operation with 503. IAM identities and disabled/deleted accounts cannot satisfy this requirement. A request already authorized and in flight may finish during a concurrent group removal. Group membership itself is administered by identity operators, never by a project membership endpoint.
+
+## Workflow and event release
+
+This release adds immutable work-item revisions, explicit nested decision reactions and the [metadata-only change feed](change-events.md). Review and apply the scoped tooling-policy change before merging the application release: the runtime boundary adds `sns:Publish` only on `dnt-app-changes`, and the deployment policy adds topic resource management only for that exact topic. No subscriptions are created automatically. Run the full check and browser suite on the exact release commit, then verify the stream worker and an explicitly authorized receiver before retiring polling.
+
+All project members now read all documentation trees. The trees are content audiences, not security partitions. User is strictly read-only, Maintainer can add/edit/soft-delete work items and add/edit/delete documents and add/edit comments, and Administrator additionally manages project membership. A project membership grant invites an existing enabled shared-Cognito account; DNT does not create new accounts or send enrollment email. Original author/actor labels remain historical; transport provenance (`web`, `agent`, `mcp`) is server-assigned, but a `web` API token is not proof of an interactive human action.

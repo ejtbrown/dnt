@@ -112,6 +112,12 @@ export class ToolingStack extends Stack {
     const execution = new iam.ManagedPolicy(this, "ExecutionPolicy", {
       managedPolicyName: "dnt-cloudformation",
     });
+    runtimeBoundary.addStatements(
+      new iam.PolicyStatement({
+        actions: ["sns:Publish"],
+        resources: [arn("sns", config.region, "dnt-app-changes")],
+      }),
+    );
     const allow = (
       actions: string[],
       resources: string[],
@@ -148,6 +154,18 @@ export class ToolingStack extends Stack {
       ),
     );
     allow(["sqs:*"], [arn("sqs", config.region, "dnt-app-*")]);
+    allow(
+      [
+        "sns:CreateTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:DeleteTopic",
+        "sns:TagResource",
+        "sns:UntagResource",
+        "sns:ListTagsForResource",
+      ],
+      [arn("sns", config.region, "dnt-app-changes")],
+    );
     allow(
       [
         "lambda:CreateEventSourceMapping",

@@ -7,6 +7,7 @@ export const states = [
   "Needs Attention",
   "Review",
   "Done",
+  "Cancelled",
 ] as const;
 export const kinds = ["Initiative", "Epic", "Task"] as const;
 export type Role = (typeof roles)[number];
@@ -50,6 +51,7 @@ export interface Attribution {
   principal: string;
   userName: string;
   agentName?: string;
+  source?: "web" | "mcp" | "agent" | "unknown";
 }
 export const attributionLabel = (value: Attribution) =>
   `${value.userName}${value.agentName ? ` via ${value.agentName}` : ""}`;
@@ -61,6 +63,18 @@ export const projectInput = z
     description: z.string().max(2000).default(""),
   })
   .strict();
+const taskId = z.string().regex(/^[A-Z][A-Z0-9]{1,9}-[1-9]\d{0,11}$/);
+const taskLinks = z
+  .array(taskId)
+  .max(50)
+  .refine((v) => new Set(v).size === v.length, "Duplicate task links");
+const dueDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, "Invalid calendar date");
 export const itemInput = z
   .object({
     kind: z.enum(kinds),
@@ -69,6 +83,9 @@ export const itemInput = z
     parentId: z.string().max(32).nullable().default(null),
     state: z.enum(states).optional(),
     assignee: principalSchema.nullable().default(null),
+    dueDate: dueDate.nullable().optional(),
+    dependencies: taskLinks.default([]),
+    relatedTasks: taskLinks.default([]),
   })
   .strict();
 export const itemPatch = z
@@ -78,6 +95,9 @@ export const itemPatch = z
     parentId: z.string().max(32).nullable().optional(),
     state: z.enum(states).optional(),
     assignee: principalSchema.nullable().optional(),
+    dueDate: dueDate.nullable().optional(),
+    dependencies: taskLinks.optional(),
+    relatedTasks: taskLinks.optional(),
   })
   .strict();
 export const docInput = z
@@ -141,6 +161,10 @@ export interface WorkItem {
   description: string;
   state?: State;
   assignee: string | null;
+  dueDate?: string | null;
+  dependencies?: string[];
+  relatedTasks?: string[];
+  deletedAt?: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -171,6 +195,8 @@ export interface PublicDocument {
 }
 export const commentInput = z
   .object({
+    parentCommentId: z.string().uuid().nullable().optional(),
+    parentCommentVersion: z.number().int().positive().optional(),
     content: z
       .string()
       .min(1)
@@ -178,7 +204,74 @@ export const commentInput = z
       .refine((value) => !!value.trim(), "Comment cannot be blank"),
   })
   .strict();
+export const commentPatch = commentInput.pick({ content: true });
+export const reactionInput = z
+  .object({
+    kind: z.enum(["approval", "acknowledgement"]),
+    commentVersion: z.number().int().positive(),
+  })
+  .strict();
+export interface CommentReaction {
+  id: string;
+  project: string;
+  itemId: string;
+  commentId: string;
+  commentVersion: number;
+  kind: "approval" | "acknowledgement";
+  principal: string;
+  attribution: Attribution;
+  createdAt: string;
+  version: number;
+  withdrawnAt?: string;
+}
+const historicalSource = z
+  .object({
+    system: z.enum(["jira", "confluence", "other"]),
+    id: z.string().trim().min(1).max(300),
+    url: z
+      .string()
+      .url()
+      .max(2000)
+      .refine(
+        (v) => new URL(v).protocol === "https:",
+        "Source URL must use HTTPS",
+      ),
+    author: z.string().trim().min(1).max(300),
+    createdAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+export const commentImportInput = commentInput
+  .extend({
+    source: historicalSource,
+    historicalApprovals: z
+      .array(
+        z
+          .object({
+            kind: z.enum(["approval", "acknowledgement"]),
+            author: z.string().trim().min(1).max(300),
+            sourceId: z.string().trim().min(1).max(300).optional(),
+            createdAt: z.string().datetime({ offset: true }).optional(),
+            sourceRevision: z.string().trim().min(1).max(100).optional(),
+          })
+          .strict(),
+      )
+      .max(100)
+      .default([]),
+  })
+  .strict();
+export interface ImportedCommentEvidence {
+  historical: true;
+  source: z.infer<typeof historicalSource>;
+  historicalApprovals: z.infer<
+    typeof commentImportInput
+  >["historicalApprovals"];
+  importedAt: string;
+  importedBy: string;
+}
 export interface WorkItemComment {
+  importedEvidence?: ImportedCommentEvidence;
+  parentCommentId?: string | null;
+  parentCommentVersion?: number;
   itemId: string;
   updatedAt?: string;
   updatedBy?: string;
@@ -192,6 +285,9 @@ export interface WorkItemComment {
   attribution: Attribution;
 }
 export interface AuditEvent {
+  before?: unknown;
+  after?: unknown;
+  changedFields?: string[];
   action: string;
   target: string;
   principal: string;

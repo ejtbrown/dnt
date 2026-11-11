@@ -50,8 +50,14 @@ export async function initialize() {
       throw new Error("Could not complete sign-in. Please try again.");
     const tokens = await result.json();
     token = tokens.access_token;
-    if (typeof returnTo === "string" && parseDirectLink(returnTo))
-      history.replaceState({}, "", returnTo);
+    if (typeof returnTo === "string" && returnTo.startsWith("/")) {
+      const destination = new URL(returnTo, location.origin);
+      if (
+        destination.origin === location.origin &&
+        parseDirectLink(destination.pathname)
+      )
+        history.replaceState({}, "", destination.pathname + destination.hash);
+    }
     // Tokens stay in memory. New sign-ins check the password; browser MFA trust is managed centrally.
   }
   return { config, authenticated: !!config.local || !!token };
@@ -77,7 +83,7 @@ export async function login() {
       state,
       verifier,
       createdAt: Date.now(),
-      returnTo: location.pathname,
+      returnTo: location.pathname + location.hash,
     }),
   );
   const query = new URLSearchParams({

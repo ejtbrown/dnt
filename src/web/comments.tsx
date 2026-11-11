@@ -1,12 +1,28 @@
 import { useEffect, useRef, useState } from "react";
-import { attributionLabel, type WorkItemComment } from "../shared/model.js";
+import {
+  attributionLabel,
+  type WorkItemComment,
+  type Attribution,
+} from "../shared/model.js";
 import { api, all } from "./api.js";
 import { Content, MarkdownField } from "./markdown.js";
+import { itemLink } from "../shared/links.js";
+type Reaction = {
+  id: string;
+  kind: "approval" | "acknowledgement";
+  commentVersion: number;
+  principal: string;
+  attribution: Attribution;
+  createdAt: string;
+  version: number;
+  withdrawnAt?: string;
+};
 function Byline({ comment }: { comment: WorkItemComment }) {
   return (
     <div className="byline">
       <bdi>{attributionLabel(comment.attribution)}</bdi> ·{" "}
-      {new Date(comment.createdAt).toLocaleString()}
+      {new Date(comment.createdAt).toLocaleString()} ·{" "}
+      {comment.attribution.source ?? "unknown source"}
       {comment.updatedBy && (
         <div>
           Edited {new Date(comment.updatedAt!).toLocaleString()} by{" "}
@@ -20,19 +36,47 @@ function Comment({
   comment,
   path,
   canEdit,
+  canWrite,
+  principal,
   updated,
+  reply,
 }: {
   comment: WorkItemComment;
   path: string;
   canEdit: boolean;
+  canWrite: boolean;
+  principal: string;
   updated: (value: WorkItemComment) => void;
+  reply: (comment: WorkItemComment) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(comment.content);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [showHistory, setShowHistory] = useState(false);
-  const [revisions, setRevisions] = useState<WorkItemComment[]>();
+  const [editing, setEditing] = useState(false),
+    [draft, setDraft] = useState(comment.content),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const [showHistory, setShowHistory] = useState(false),
+    [revisions, setRevisions] = useState<WorkItemComment[]>();
+  const [reactions, setReactions] = useState<Reaction[]>([]);
+  const reactionKeys = useRef(new Map<string, string>());
+  const reactionInFlight = useRef(false);
+  const [reactionsReady, setReactionsReady] = useState(false);
+  const reactionPath = `${path}/${comment.id}/reactions`;
+  useEffect(() => {
+    let active = true;
+    setReactionsReady(false);
+    all<Reaction>(reactionPath)
+      .then((data) => {
+        if (active) {
+          setReactions(data);
+          setReactionsReady(true);
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reactionPath, comment.version]);
   useEffect(() => {
     if (!showHistory) return;
     let active = true;
@@ -49,9 +93,108 @@ function Comment({
       active = false;
     };
   }, [showHistory, path, comment.id, comment.version]);
+  async function react(kind: Reaction["kind"]) {
+    if (busy || reactionInFlight.current || !reactionsReady) return;
+    if (
+      kind === "approval" &&
+      !confirm(
+        `Approve the exact text of comment revision ${comment.version}? Acknowledgement is available separately and does not grant approval.`,
+      )
+    )
+      return;
+    const value = `${comment.id}/${comment.version}/${kind}`;
+    if (!reactionKeys.current.has(value))
+      reactionKeys.current.set(value, crypto.randomUUID());
+    reactionInFlight.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const created = await api<Reaction>(
+        reactionPath,
+        "POST",
+        { kind, commentVersion: comment.version },
+        undefined,
+        reactionKeys.current.get(value),
+      );
+      setReactions((current) => [
+        ...current.filter((r) => r.id !== created.id),
+        created,
+      ]);
+      setReactions(await all<Reaction>(reactionPath));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      reactionInFlight.current = false;
+      setBusy(false);
+    }
+  }
   return (
-    <article className="task-comment">
+    <article
+      className="task-comment"
+      id={`comment-${comment.id}`}
+      tabIndex={-1}
+    >
       <Byline comment={comment} />
+      {comment.importedEvidence && (
+        <aside
+          className="imported-evidence"
+          aria-label="Imported historical evidence"
+        >
+          <strong>Imported historical evidence</strong>
+          <p>
+            Source author: {comment.importedEvidence.source.author} ·{" "}
+            <a
+              href={comment.importedEvidence.source.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {comment.importedEvidence.source.system}{" "}
+              {comment.importedEvidence.source.id}
+            </a>
+            {comment.importedEvidence.source.createdAt
+              ? ` · ${new Date(comment.importedEvidence.source.createdAt).toLocaleString()}`
+              : ""}
+          </p>
+          <p>
+            Imported by {comment.importedEvidence.importedBy} at{" "}
+            {new Date(comment.importedEvidence.importedAt).toLocaleString()}.
+            Historical approvals are source evidence, not newly granted DNT
+            approval.
+          </p>
+          {comment.importedEvidence.historicalApprovals.length > 0 && (
+            <ul>
+              {comment.importedEvidence.historicalApprovals.map(
+                (approval, index) => (
+                  <li key={index}>
+                    {approval.kind === "approval"
+                      ? "Historical approval"
+                      : "Historical acknowledgement"}{" "}
+                    by {approval.author}
+                    {approval.createdAt
+                      ? ` · ${new Date(approval.createdAt).toLocaleString()}`
+                      : ""}
+                    {approval.sourceRevision
+                      ? ` · source revision ${approval.sourceRevision}`
+                      : ""}
+                    {approval.sourceId ? ` · source ${approval.sourceId}` : ""}
+                  </li>
+                ),
+              )}
+            </ul>
+          )}
+        </aside>
+      )}
+      {comment.parentCommentId && (
+        <p className="byline">
+          Reply to comment revision {comment.parentCommentVersion ?? "unknown"}
+        </p>
+      )}
+      <a
+        className="comment-permalink"
+        href={`${itemLink(comment.itemId)}#comment-${comment.id}`}
+      >
+        Link to comment · revision {comment.version}
+      </a>
       {editing ? (
         <form
           onSubmit={async (e) => {
@@ -82,6 +225,10 @@ function Comment({
             maxLength={20000}
             disabled={busy}
           />
+          <p className="muted">
+            Existing approvals remain tied to their original revision. Changing
+            the text does not transfer approval.
+          </p>
           <div className="history-controls">
             <button className="primary" disabled={busy || !draft.trim()}>
               Save comment
@@ -100,9 +247,19 @@ function Comment({
         <Content>{comment.content}</Content>
       )}
       <div className="history-controls">
+        {canWrite && !editing && (
+          <button
+            className="quiet"
+            disabled={busy}
+            onClick={() => reply(comment)}
+          >
+            Reply
+          </button>
+        )}
         {canEdit && !editing && (
           <button
             className="quiet"
+            disabled={busy}
             onClick={() => {
               setDraft(comment.content);
               setEditing(true);
@@ -115,7 +272,108 @@ function Comment({
         <button className="quiet" onClick={() => setShowHistory(!showHistory)}>
           {showHistory ? "Hide comment history" : "Comment history"}
         </button>
+        {canWrite && !editing && (
+          <>
+            <button
+              className="secondary"
+              disabled={
+                busy ||
+                !reactionsReady ||
+                reactions.some(
+                  (r) =>
+                    r.principal === principal &&
+                    !r.withdrawnAt &&
+                    r.kind === "approval" &&
+                    r.commentVersion === comment.version,
+                )
+              }
+              onClick={() => react("approval")}
+            >
+              👍 Approve revision {comment.version}
+            </button>
+            <button
+              className="quiet"
+              disabled={
+                busy ||
+                !reactionsReady ||
+                reactions.some(
+                  (r) =>
+                    r.principal === principal &&
+                    !r.withdrawnAt &&
+                    r.kind === "acknowledgement" &&
+                    r.commentVersion === comment.version,
+                )
+              }
+              onClick={() => react("acknowledgement")}
+            >
+              👍 Acknowledge
+            </button>
+          </>
+        )}
       </div>
+      {!!reactions.length && (
+        <ul
+          className="comment-reactions"
+          aria-label="Comment approvals and acknowledgements"
+        >
+          {reactions.map((r) => (
+            <li key={r.id}>
+              <strong>
+                {r.kind === "approval" ? "Approval" : "Acknowledgement"}
+              </strong>{" "}
+              by <bdi>{attributionLabel(r.attribution)}</bdi> ·{" "}
+              {r.attribution.source ?? "unknown source"} · revision{" "}
+              {r.commentVersion} · {new Date(r.createdAt).toLocaleString()}
+              {r.commentVersion !== comment.version && (
+                <span className="muted">
+                  {" "}
+                  (earlier text, not the current revision)
+                </span>
+              )}
+              {r.withdrawnAt ? (
+                <span>
+                  {" "}
+                  · Withdrawn {new Date(r.withdrawnAt).toLocaleString()}
+                </span>
+              ) : (
+                r.principal === principal && (
+                  <button
+                    className="quiet"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError("");
+                      try {
+                        const withdrawn = await api<Reaction>(
+                          `${reactionPath}/${r.id}`,
+                          "DELETE",
+                          undefined,
+                          r.version,
+                        );
+                        setReactions((current) =>
+                          current.map((value) =>
+                            value.id === withdrawn.id ? withdrawn : value,
+                          ),
+                        );
+                        reactionKeys.current.delete(
+                          `${comment.id}/${r.commentVersion}/${r.kind}`,
+                        );
+                        setReactions(await all<Reaction>(reactionPath));
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Withdraw {r.kind}
+                  </button>
+                )
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -153,23 +411,33 @@ export function WorkItemComments({
   itemId,
   principal,
   administrator,
+  canWrite,
 }: {
   project: string;
   itemId: string;
   principal: string;
   administrator: boolean;
+  canWrite: boolean;
 }) {
   const path = `/projects/${project}/items/${itemId}/comments`;
-  const [comments, setComments] = useState<WorkItemComment[]>([]);
-  const [content, setContent] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const request = useRef({ content, key: crypto.randomUUID() });
-  if (request.current.content !== content)
-    request.current = { content, key: crypto.randomUUID() };
+  const [comments, setComments] = useState<WorkItemComment[]>([]),
+    [content, setContent] = useState(""),
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(true),
+    [saving, setSaving] = useState(false);
+  const [replyTo, setReplyTo] = useState<WorkItemComment>();
+  const composer = useRef<HTMLDivElement>(null);
+  const value = JSON.stringify({
+    content,
+    parentCommentId: replyTo?.id ?? null,
+    parentCommentVersion: replyTo?.version,
+  });
+  const request = useRef({ value, key: crypto.randomUUID() });
+  if (request.current.value !== value)
+    request.current = { value, key: crypto.randomUUID() };
   useEffect(() => {
     let active = true;
+    setLoading(true);
     all<WorkItemComment>(path)
       .then((items) => {
         if (active) setComments(items);
@@ -184,6 +452,54 @@ export function WorkItemComments({
       active = false;
     };
   }, [path]);
+  useEffect(() => {
+    const scroll = () => {
+      if (!location.hash.startsWith("#comment-")) return;
+      document
+        .getElementById(location.hash.slice(1))
+        ?.scrollIntoView({ block: "center" });
+    };
+    scroll();
+    window.addEventListener("hashchange", scroll);
+    return () => window.removeEventListener("hashchange", scroll);
+  }, [comments]);
+  const render = (
+    comment: WorkItemComment,
+    ancestors: string[] = [],
+    depth = 0,
+  ): React.ReactNode => {
+    if (ancestors.includes(comment.id)) return null;
+    const children = comments.filter((c) => c.parentCommentId === comment.id);
+    return (
+      <div key={comment.id} className="comment-thread">
+        <Comment
+          comment={comment}
+          path={path}
+          canWrite={canWrite}
+          principal={principal}
+          canEdit={canWrite}
+          updated={(value) =>
+            setComments((current) =>
+              current.map((c) => (c.id === value.id ? value : c)),
+            )
+          }
+          reply={(c) => {
+            setReplyTo(c);
+            composer.current?.scrollIntoView({ block: "center" });
+          }}
+        />
+        {children.length > 0 && (
+          <div
+            className={depth < 5 ? "comment-replies" : "comment-replies-flat"}
+          >
+            {children.map((c) =>
+              render(c, [...ancestors, comment.id], depth + 1),
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
   return (
     <section className="task-comments" aria-label="Work item comments">
       <h3>Comments</h3>
@@ -197,56 +513,75 @@ export function WorkItemComments({
       ) : comments.length === 0 ? (
         <p className="muted">No comments yet.</p>
       ) : (
-        comments.map((comment) => (
-          <Comment
-            key={comment.id}
-            comment={comment}
-            path={path}
-            canEdit={administrator || principal === comment.createdBy}
-            updated={(value) =>
-              setComments((current) =>
-                current.map((c) => (c.id === value.id ? value : c)),
-              )
-            }
-          />
-        ))
+        comments
+          .filter(
+            (c) =>
+              !c.parentCommentId ||
+              !comments.some((p) => p.id === c.parentCommentId),
+          )
+          .map((c) => render(c))
       )}
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setSaving(true);
-          setError("");
-          try {
-            await api(
-              path,
-              "POST",
-              { content },
-              undefined,
-              request.current.key,
-            );
-            setComments(await all<WorkItemComment>(path));
-            setContent("");
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setSaving(false);
-          }
-        }}
-      >
-        <MarkdownField
-          label="Comment"
-          value={content}
-          onChange={setContent}
-          maxLength={20000}
-          disabled={saving}
-        />
-        <button
-          className="secondary"
-          disabled={loading || saving || !content.trim()}
-        >
-          {saving ? "Posting…" : "Post comment"}
-        </button>
-      </form>
+      {canWrite && (
+        <div ref={composer}>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setSaving(true);
+              setError("");
+              try {
+                await api(
+                  path,
+                  "POST",
+                  {
+                    content,
+                    parentCommentId: replyTo?.id ?? null,
+                    parentCommentVersion: replyTo?.version,
+                  },
+                  undefined,
+                  request.current.key,
+                );
+                setComments(await all<WorkItemComment>(path));
+                setContent("");
+                setReplyTo(undefined);
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            {replyTo && (
+              <div className="reply-context">
+                Replying to{" "}
+                <a href={`${itemLink(itemId)}#comment-${replyTo.id}`}>
+                  {attributionLabel(replyTo.attribution)}’s comment
+                </a>
+                <button
+                  type="button"
+                  className="quiet"
+                  disabled={saving}
+                  onClick={() => setReplyTo(undefined)}
+                >
+                  Cancel reply
+                </button>
+              </div>
+            )}
+            <MarkdownField
+              label={replyTo ? "Reply" : "Comment"}
+              value={content}
+              onChange={setContent}
+              maxLength={20000}
+              disabled={saving}
+            />
+            <button
+              className="secondary"
+              disabled={loading || saving || !content.trim()}
+            >
+              {saving ? "Posting…" : replyTo ? "Post reply" : "Post comment"}
+            </button>
+          </form>
+        </div>
+      )}
     </section>
   );
 }

@@ -35,6 +35,13 @@ export default function MarkdownEditor(props: EditorProps) {
   const latest = useRef(props);
   latest.current = props;
   const editable = useRef(new Compartment());
+  const attributes = useRef(new Compartment());
+  const contentAttributes = (label: string) => EditorView.contentAttributes.of({
+    "aria-label": label,
+    "aria-multiline": "true",
+    role: "textbox",
+    spellcheck: "true",
+  });
   useEffect(() => {
     const initial = latest.current;
     const editor = new EditorView({
@@ -51,12 +58,7 @@ export default function MarkdownEditor(props: EditorProps) {
           EditorState.lineSeparator.of(
             initial.value.includes("\r\n") ? "\r\n" : "\n",
           ),
-          EditorView.contentAttributes.of({
-            "aria-label": initial.label,
-            "aria-multiline": "true",
-            role: "textbox",
-            spellcheck: "true",
-          }),
+          attributes.current.of(contentAttributes(initial.label)),
           editable.current.of(EditorState.readOnly.of(!!initial.disabled)),
           EditorState.transactionFilter.of((tr) =>
             tr.newDoc.length > latest.current.maxLength && tr.docChanged
@@ -90,5 +92,10 @@ export default function MarkdownEditor(props: EditorProps) {
       ),
     });
   }, [props.disabled]);
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: attributes.current.reconfigure(contentAttributes(props.label)),
+    });
+  }, [props.label]);
   return <div className="markdown-editor" ref={host} />;
 }
