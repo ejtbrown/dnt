@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { fixture, admin } from "../mcp-fixtures.js";
 
-async function setup(page: Page, readOnly = false) {
+async function setup(page: Page, readOnly = false, restrictedProject = false) {
   const f = fixture();
   const call = async (method: string, path: string, body?: unknown) => {
     const r = await f.service.handle({
@@ -50,8 +50,12 @@ async function setup(page: Page, readOnly = false) {
       query: Object.fromEntries(url.searchParams),
       body: req.postData() ? req.postDataJSON() : undefined,
     });
-    if (readOnly && url.pathname === "/api/v1/projects") {
-      for (const item of (r.body as any).items) item.role = "User";
+    if (
+      (readOnly || restrictedProject) &&
+      url.pathname === "/api/v1/projects"
+    ) {
+      for (const item of (r.body as any).items)
+        if (readOnly || item.project === "TWO") item.role = "User";
     }
     await route.fulfill({
       status: r.status,
@@ -100,6 +104,15 @@ for (const theme of ["light", "dark"] as const) {
       const box = await page.getByRole("dialog").boundingBox();
       expect(box!.x).toBeGreaterThanOrEqual(0);
       expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      await expect(page.locator(".reply-context")).toHaveCSS(
+        "background-color",
+        theme === "dark" ? "rgb(32, 44, 38)" : "rgb(250, 251, 248)",
+      );
+      await page
+        .getByRole("textbox", { name: "Reply", exact: true })
+        .fill("Reply draft");
+      await expect(state).toBeInViewport();
       await page.screenshot({ path: `test-results/ui-${theme}-${width}.png` });
       await state.selectOption("Implement");
       await page
@@ -159,5 +172,25 @@ test("derived states remain descriptive and User cannot edit task state", async 
   await expect(page.getByLabel("State", { exact: true })).toBeDisabled();
   await expect(
     page.locator(".dialog-title").getByRole("button", { name: "Save changes" }),
+  ).toBeDisabled();
+});
+
+test("switching from an administrative section falls back when the next project is read-only", async ({
+  page,
+}) => {
+  await setup(page, false, true);
+  await page.goto("/");
+  await page
+    .locator("nav")
+    .getByRole("button", { name: "Members", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Project", exact: true }).click();
+  await page
+    .locator("#project-options")
+    .getByRole("button", { name: "TWO", exact: false })
+    .click();
+  await expect(page.locator("nav .active")).toContainText("Board");
+  await expect(
+    page.locator("nav").getByRole("button", { name: "Members", exact: true }),
   ).toHaveCount(0);
 });

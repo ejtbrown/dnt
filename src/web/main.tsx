@@ -1698,6 +1698,7 @@ function ItemForm({
               <label className="header-state">
                 State
                 <select
+                  aria-label="State"
                   disabled={busy || readOnly}
                   value={state}
                   onChange={(e) => setState(e.target.value as State)}
@@ -1708,12 +1709,14 @@ function ItemForm({
                 </select>
               </label>
             )}
-            {initial && !readOnly && (
+            {initial && (
               <button
                 type="submit"
                 form="work-item-form"
                 className="primary"
-                disabled={busy || (kind !== "Initiative" && !parents.length)}
+                disabled={
+                  busy || readOnly || (kind !== "Initiative" && !parents.length)
+                }
               >
                 {busy ? "Saving…" : "Save changes"}
               </button>
@@ -1872,17 +1875,19 @@ function ItemForm({
             </p>
           )}
         </section>
-        <div className="form-actions">
-          <button
-            className="primary"
-            disabled={
-              busy || !!readOnly || (kind !== "Initiative" && !parents.length)
-            }
-          >
-            <Check size={16} />
-            {busy ? "Saving…" : initial ? "Save changes" : "Create work item"}
-          </button>
-        </div>
+        {(!initial || !header) && (
+          <div className="form-actions">
+            <button
+              className="primary"
+              disabled={
+                busy || !!readOnly || (kind !== "Initiative" && !parents.length)
+              }
+            >
+              <Check size={16} />
+              {busy ? "Saving…" : initial ? "Save changes" : "Create work item"}
+            </button>
+          </div>
+        )}
       </fieldset>
     </form>
   );
