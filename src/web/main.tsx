@@ -1,3 +1,4 @@
+import { useDraftState, hasRestoredDrafts } from "./session-drafts.js";
 import { DependencyView } from "./dependency-view.js";
 import { ProjectPicker, type ProjectSignals } from "./project-picker.js";
 import "./dependency-view.css";
@@ -60,7 +61,6 @@ import {
   login,
   logout,
   renewSession,
-  cancelSessionRenewal,
 } from "./api.js";
 import "./style.css";
 
@@ -131,56 +131,71 @@ function Brand({
     </a>
   );
 }
-function App() {
+function App({
+  boot,
+}: {
+  boot: {
+    config?: { local?: boolean };
+    authenticated: boolean;
+    error?: string;
+  };
+}) {
+  const resuming = useRef(hasRestoredDrafts());
+  const restoreLink = useRef(resuming.current);
+  const restoreProject = useRef(resuming.current);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [renewing, setRenewing] = useState(false);
-  const [renewalComplete, setRenewalComplete] = useState(false);
   useEffect(() => {
     const expired = () => setSessionExpired(true);
-    const renewed = () => {
-      setSessionExpired(false);
-      setError("");
-    };
     window.addEventListener("dnt-session-expired", expired);
-    window.addEventListener("dnt-session-renewed", renewed);
     return () => {
       window.removeEventListener("dnt-session-expired", expired);
-      window.removeEventListener("dnt-session-renewed", renewed);
     };
   }, []);
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [local, setLocal] = useState(false);
   const [path, setPath] = useState(location.pathname);
-  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkLoading, setLinkLoading] = useState(
+    !!parseDirectLink(location.pathname),
+  );
   const [publicDoc, setPublicDoc] = useState<PublicDocument>();
   const [linkUnavailable, setLinkUnavailable] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [me, setMe] = useState<Me>();
   const [projects, setProjects] = useState<(Project & { role: Role })[]>([]);
-  const [slug, setSlug] = useState("");
-  const [showDependencies, setShowDependencies] = useState(false);
+  const [slug, setSlug] = useDraftState("app:slug", "");
+  const [showDependencies, setShowDependencies] = useDraftState(
+    "app:showDependencies",
+    false,
+  );
   const [projectSignals, setProjectSignals] = useState<
     Record<string, ProjectSignals | undefined>
   >({});
-  const [tab, setTab] = useState<Tab>("Board");
+  const [tab, setTab] = useDraftState<Tab>("app:tab", "Board");
   const [items, setItems] = useState<WorkItem[]>([]);
-  const [search, setSearch] = useState("");
-  const [tree, setTree] = useState<Role>("User");
+  const [search, setSearch] = useDraftState("app:search", "");
+  const [tree, setTree] = useDraftState<Role>("app:tree", "User");
   const [docs, setDocs] = useState<Document[]>([]);
-  const [selectedDoc, setSelectedDoc] = useState<
-    Document & { content: string }
-  >();
+  const [selectedDoc, setSelectedDoc] = useDraftState<
+    (Document & { content: string }) | undefined
+  >("app:selectedDoc", undefined);
   const [deletedProjects, setDeletedProjects] = useState<Membership[]>([]);
-  const [deletedProject, setDeletedProject] = useState("");
+  const [deletedProject, setDeletedProject] = useDraftState(
+    "app:deletedProject",
+    "",
+  );
   const [members, setMembers] = useState<Membership[]>([]);
-  const [modal, setModal] = useState<
+  const [modal, setModal] = useDraftState<
     "project" | "item" | "doc" | "member" | "history" | null
-  >(null);
+  >("app:modal", null);
   const [itemHeader, setItemHeader] = useState<HTMLDivElement | null>(null);
-  const [editItem, setEditItem] = useState<WorkItem>();
-  const [editDoc, setEditDoc] = useState(false);
+  const [editItem, setEditItem] = useDraftState<WorkItem | undefined>(
+    "app:editItem",
+    undefined,
+  );
+  const [editDoc, setEditDoc] = useDraftState("app:editDoc", false);
   const [revisions, setRevisions] = useState<Document[]>([]);
   const project = projects.find((p) => p.slug === slug);
   const role = project?.role ?? "User";
@@ -240,14 +255,11 @@ function App() {
     );
   }
   useEffect(() => {
-    initialize()
-      .then(({ config, authenticated, renewalComplete }) => {
-        setRenewalComplete(!!renewalComplete);
-        setPath(location.pathname);
-        setLocal(!!config.local);
-        setAuthed(authenticated);
-        if (authenticated) return loadProjects();
-      })
+    setPath(location.pathname);
+    setLocal(!!boot.config?.local);
+    setAuthed(boot.authenticated);
+    if (boot.error) setError(boot.error);
+    (boot.authenticated ? loadProjects() : Promise.resolve())
       .catch((e) => setError(e.message))
       .finally(() => setReady(true));
   }, []);
@@ -288,19 +300,26 @@ function App() {
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
-    setError("");
+    if (!boot.error || authed) setError("");
     setPublicDoc(undefined);
     setLinkUnavailable(false);
-    setModal(null);
-    setEditDoc(false);
-    setSelectedDoc(undefined);
+    const restoredLink = restoreLink.current;
+    restoreLink.current = false;
+    if (!restoredLink) {
+      setModal(null);
+      setEditDoc(false);
+      setSelectedDoc(undefined);
+    }
     const link = parseDirectLink(path);
     if (!link) {
       setLinkLoading(false);
       if (path !== "/") setError("This link is not valid.");
       return;
     }
-    if (!authed && link.kind === "item") return;
+    if (!authed && link.kind === "item") {
+      setLinkLoading(false);
+      return;
+    }
     setLinkLoading(true);
     (async () => {
       if (link.kind === "item") {
@@ -311,7 +330,9 @@ function App() {
         setSlug(item.project);
         // Keep the current work view when opening a card within the project.
         setTab((current) => (current === "Planning" ? current : "Board"));
-        setEditItem(item);
+        setEditItem((current) =>
+          restoredLink && current?.id === item.id ? current : item,
+        );
         setModal("item");
       } else {
         if (authed) {
@@ -323,7 +344,9 @@ function App() {
             setSlug(doc.project);
             setTree(doc.tree);
             setTab("Documentation");
-            setSelectedDoc(doc);
+            setSelectedDoc((current) =>
+              restoredLink && current?.id === doc.id ? current : doc,
+            );
             return;
           } catch (e) {
             if (!(e instanceof ApiError) || ![403, 404].includes(e.status))
@@ -382,6 +405,9 @@ function App() {
     }
   }
   useEffect(() => {
+    if (!ready || !authed) return;
+    const restoredProject = restoreProject.current;
+    restoreProject.current = false;
     setSelectedDoc((current) =>
       current?.project === slug &&
       current.tree === tree &&
@@ -389,7 +415,7 @@ function App() {
         ? current
         : undefined,
     );
-    setEditDoc(false);
+    if (!restoredProject) setEditDoc(false);
     setItems([]);
     setDocs([]);
     setMembers([]);
@@ -397,7 +423,7 @@ function App() {
     return () => {
       loadGeneration.current++;
     };
-  }, [slug, tab, tree]);
+  }, [slug, tab, tree, ready, authed]);
   async function move(item: WorkItem, state: State) {
     await run(async () => {
       await api(
@@ -456,7 +482,7 @@ function App() {
             onClick={async () => {
               setRenewing(true);
               try {
-                await renewSession();
+                await renewSession(true);
               } catch (e) {
                 setError((e as Error).message);
               } finally {
@@ -466,9 +492,6 @@ function App() {
           >
             {renewing ? "Signing in…" : "Continue session"}
           </button>
-          {renewing && (
-            <button onClick={cancelSessionRenewal}>Cancel sign-in</button>
-          )}
         </div>
       )}
       {error && (
@@ -486,8 +509,6 @@ function App() {
       )}
     </>
   );
-  if (renewalComplete)
-    return <p>Session renewed. You can close this window.</p>;
   if (!ready)
     return (
       <div className="welcome">
@@ -1410,7 +1431,7 @@ function App() {
               )}
               <ItemForm
                 header={itemHeader}
-                key={editItem?.id ?? "new"}
+                key={`form:${editItem?.id ?? "new"}`}
                 initial={editItem}
                 project={slug}
                 items={items}
@@ -1457,7 +1478,9 @@ function App() {
                   <Trash2 size={16} /> Delete work item
                 </button>
               )}
-              {editItem && <ItemHistory key={editItem.id} item={editItem} />}
+              {editItem && (
+                <ItemHistory key={`history:${editItem.id}`} item={editItem} />
+              )}
               {editItem && (
                 <WorkItemComments
                   key={`${slug}/${editItem.id}`}
@@ -1533,12 +1556,18 @@ function App() {
     </div>
   );
 }
-function useRequestKey(body: unknown) {
+function useRequestKey(body: unknown, draftKey: string) {
   const value = JSON.stringify(body);
-  const ref = useRef({ value, key: crypto.randomUUID() });
-  if (ref.current.value !== value)
-    ref.current = { value, key: crypto.randomUUID() };
-  return ref.current.key;
+  const [record, setRecord] = useDraftState(draftKey + ":request", () => ({
+    value,
+    key: crypto.randomUUID(),
+  }));
+  if (record.value !== value) {
+    const next = { value, key: crypto.randomUUID() };
+    setRecord(next);
+    return next.key;
+  }
+  return record.key;
 }
 function ProjectForm({
   save,
@@ -1547,11 +1576,15 @@ function ProjectForm({
   save: (body: any, key: string) => void;
   busy: boolean;
 }) {
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [description, setDescription] = useState("");
+  const draftKey = "project-form";
+  const [name, setName] = useDraftState(draftKey + ":name", "");
+  const [slug, setSlug] = useDraftState(draftKey + ":slug", "");
+  const [description, setDescription] = useDraftState(
+    draftKey + ":description",
+    "",
+  );
   const body = { name, slug, description };
-  const key = useRequestKey(body);
+  const key = useRequestKey(body, draftKey);
   return (
     <form
       onSubmit={(e) => {
@@ -1618,7 +1651,9 @@ function ItemForm({
   save: (body: any, key: string) => void;
   busy: boolean;
 }) {
-  const [kind, setKind] = useState<Kind>(
+  const draftKey = `item:${project}/${initial?.id ?? "new"}`;
+  const [kind, setKind] = useDraftState<Kind>(
+    draftKey + ":kind",
     initial?.kind ??
       (items.some((i) => i.kind === "Epic")
         ? "Task"
@@ -1628,17 +1663,40 @@ function ItemForm({
             ? "Initiative"
             : "Task"),
   );
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [description, setDescription] = useState(initial?.description ?? "");
-  const [editDescription, setEditDescription] = useState(!initial);
-  const [parentId, setParent] = useState(initial?.parentId ?? "");
-  const [state, setState] = useState<State>(initial?.state ?? "Concept");
-  const [assignee, setAssignee] = useState(initial?.assignee ?? "");
-  const [dueDate, setDueDate] = useState(initial?.dueDate ?? "");
-  const [dependencies, setDependencies] = useState(
+  const [title, setTitle] = useDraftState(
+    draftKey + ":title",
+    initial?.title ?? "",
+  );
+  const [description, setDescription] = useDraftState(
+    draftKey + ":description",
+    initial?.description ?? "",
+  );
+  const [editDescription, setEditDescription] = useDraftState(
+    draftKey + ":editDescription",
+    !initial,
+  );
+  const [parentId, setParent] = useDraftState(
+    draftKey + ":parentId",
+    initial?.parentId ?? "",
+  );
+  const [state, setState] = useDraftState<State>(
+    draftKey + ":state",
+    initial?.state ?? "Concept",
+  );
+  const [assignee, setAssignee] = useDraftState(
+    draftKey + ":assignee",
+    initial?.assignee ?? "",
+  );
+  const [dueDate, setDueDate] = useDraftState(
+    draftKey + ":dueDate",
+    initial?.dueDate ?? "",
+  );
+  const [dependencies, setDependencies] = useDraftState(
+    draftKey + ":dependencies",
     (initial?.dependencies ?? []).join(", "),
   );
-  const [relatedTasks, setRelatedTasks] = useState(
+  const [relatedTasks, setRelatedTasks] = useDraftState(
+    draftKey + ":relatedTasks",
     (initial?.relatedTasks ?? []).join(", "),
   );
   const taskIds = (value: string) => [
@@ -1675,7 +1733,7 @@ function ItemForm({
       : {}),
     assignee: assignee || null,
   };
-  const key = useRequestKey(body);
+  const key = useRequestKey(body, draftKey);
   const readOnly = rank(role) < 1;
   return (
     <form
@@ -1905,12 +1963,22 @@ function DocForm({
   busy: boolean;
   cancel?: () => void;
 }) {
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [content, setContent] = useState(initial?.content ?? "");
-  const [parentId, setParent] = useState("");
-  const [isPublic, setPublic] = useState(initial?.public ?? false);
+  const draftKey = `document:${initial?.id ?? "new"}`;
+  const [title, setTitle] = useDraftState(
+    draftKey + ":title",
+    initial?.title ?? "",
+  );
+  const [content, setContent] = useDraftState(
+    draftKey + ":content",
+    initial?.content ?? "",
+  );
+  const [parentId, setParent] = useDraftState(draftKey + ":parentId", "");
+  const [isPublic, setPublic] = useDraftState(
+    draftKey + ":isPublic",
+    initial?.public ?? false,
+  );
   const body = { title, content, public: isPublic, parentId: parentId || null };
-  const key = useRequestKey(body);
+  const key = useRequestKey(body, draftKey);
   return (
     <form
       onSubmit={(e) => {
@@ -1981,10 +2049,11 @@ function MemberForm({
   save: (body: any, key: string) => void;
   busy: boolean;
 }) {
-  const [principal, setPrincipal] = useState("");
-  const [role, setRole] = useState<Role>("User");
+  const draftKey = "member-form";
+  const [principal, setPrincipal] = useDraftState(draftKey + ":principal", "");
+  const [role, setRole] = useDraftState<Role>(draftKey + ":role", "User");
   const body = { principal, role };
-  const key = useRequestKey(body);
+  const key = useRequestKey(body, draftKey);
   return (
     <form
       onSubmit={(e) => {
@@ -2065,7 +2134,12 @@ function DocTree({
     </ul>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+const root = createRoot(document.getElementById("root")!);
+initialize()
+  .then((boot) => root.render(<App boot={boot} />))
+  .catch((error) =>
+    root.render(<App boot={{ authenticated: false, error: error.message }} />),
+  );
 
 function ProjectActivity({ project }: { project: string }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);

@@ -1,3 +1,4 @@
+import { useDraftState } from "./session-drafts.js";
 import React, { useEffect, useState } from "react";
 import { api, all } from "./api.js";
 import type { Project, Role, Page } from "../shared/model.js";
@@ -188,7 +189,7 @@ export function UserPicker({
   project: string;
   select: (user: DirectoryUser) => void;
 }) {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useDraftState("member-picker:search", "");
   const [result, setResult] = useState<Page<DirectoryUser>>();
   const [queried, setQueried] = useState("");
   const [busy, setBusy] = useState(false);

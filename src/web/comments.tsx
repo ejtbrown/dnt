@@ -1,3 +1,4 @@
+import { useDraftState } from "./session-drafts.js";
 import { useEffect, useRef, useState } from "react";
 import {
   attributionLabel,
@@ -50,10 +51,23 @@ function Comment({
   updated: (value: WorkItemComment) => void;
   reply: (comment: WorkItemComment) => void;
 }) {
-  const [editing, setEditing] = useState(false),
-    [draft, setDraft] = useState(comment.content),
+  const [editing, setEditing] = useDraftState(
+      `comment:${comment.id}:editing`,
+      false,
+    ),
+    [draft, setDraft] = useDraftState(
+      `comment:${comment.id}:content`,
+      comment.content,
+    ),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [draftVersion, setDraftVersion] = useDraftState(
+    `comment:${comment.id}:version`,
+    comment.version,
+  );
+  useEffect(() => {
+    if (!editing) setDraftVersion(comment.version);
+  }, [editing, comment.version]);
   const [showHistory, setShowHistory] = useState(false),
     [revisions, setRevisions] = useState<WorkItemComment[]>();
   const [reactions, setReactions] = useState<Reaction[]>([]);
@@ -214,7 +228,7 @@ function Comment({
                   `${path}/${comment.id}`,
                   "PATCH",
                   { content: draft },
-                  comment.version,
+                  draftVersion,
                 ),
               );
               setEditing(false);
@@ -428,14 +442,23 @@ export function WorkItemComments({
 }) {
   const path = `/projects/${project}/items/${itemId}/comments`;
   const [comments, setComments] = useState<WorkItemComment[]>([]),
-    [content, setContent] = useState(""),
+    [content, setContent] = useDraftState(path + ":content", ""),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false);
-  const [replyTo, setReplyTo] = useState<WorkItemComment>();
-  const [replyContent, setReplyContent] = useState("");
+  const [replyTo, setReplyTo] = useDraftState<WorkItemComment | undefined>(
+    path + ":replyTo",
+    undefined,
+  );
+  const [replyContent, setReplyContent] = useDraftState(
+    path + ":replyContent",
+    "",
+  );
   const composer = useRef<HTMLDivElement>(null);
-  const requestKeys = useRef(new Map<string, string>());
+  const [requestKeys, setRequestKeys] = useDraftState<Record<string, string>>(
+    path + ":requestKeys",
+    {},
+  );
   const inFlight = useRef(false);
   useEffect(() => {
     if (replyTo) composer.current?.scrollIntoView({ block: "center" });
@@ -476,17 +499,21 @@ export function WorkItemComments({
       parentCommentVersion: reply ? replyTo?.version : undefined,
     };
     const value = JSON.stringify(body);
-    if (!requestKeys.current.has(value))
-      requestKeys.current.set(value, crypto.randomUUID());
+    const requestKey = requestKeys[value] ?? crypto.randomUUID();
+    setRequestKeys((previous) => ({ ...previous, [value]: requestKey }));
     inFlight.current = true;
     setSaving(true);
     setError("");
     try {
-      await api(path, "POST", body, undefined, requestKeys.current.get(value));
+      await api(path, "POST", body, undefined, requestKey);
       setComments(await all<WorkItemComment>(path));
       // Retain the key on uncertain failure. A later deliberate identical post
       // after a successful completion is a different action.
-      requestKeys.current.delete(value);
+      setRequestKeys((previous) => {
+        const next = { ...previous };
+        delete next[value];
+        return next;
+      });
       if (reply) {
         setReplyContent("");
         setReplyTo(undefined);
