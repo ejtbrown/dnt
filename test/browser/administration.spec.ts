@@ -62,7 +62,8 @@ test("project administrators without dnt-admin can manage members but cannot cre
     page.getByRole("heading", { name: "Work board", exact: true }),
   ).toBeVisible();
   expect(navigations).toBe(0);
-  await expect(page.getByLabel("Project", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Project", { exact: true })).toHaveAttribute(
+    "value",
     "ADMIN",
   );
 });

@@ -1,3 +1,6 @@
+import { DependencyView } from "./dependency-view.js";
+import { ProjectPicker, type ProjectSignals } from "./project-picker.js";
+import "./dependency-view.css";
 import { AssigneePicker } from "./assignee-picker.js";
 import { ProjectGroups, UserPicker } from "./groups.js";
 import React, { useEffect, useRef, useState } from "react";
@@ -128,6 +131,10 @@ function App() {
   const [me, setMe] = useState<Me>();
   const [projects, setProjects] = useState<(Project & { role: Role })[]>([]);
   const [slug, setSlug] = useState("");
+  const [showDependencies, setShowDependencies] = useState(false);
+  const [projectSignals, setProjectSignals] = useState<
+    Record<string, ProjectSignals | undefined>
+  >({});
   const [tab, setTab] = useState<Tab>("Board");
   const [items, setItems] = useState<WorkItem[]>([]);
   const [search, setSearch] = useState("");
@@ -177,6 +184,23 @@ function App() {
         })),
     );
     setProjects(results);
+    const summaries = await Promise.all(
+      results.map(async (p) => {
+        try {
+          const work = await all<WorkItem>(`/projects/${p.slug}/items`);
+          return [
+            p.slug,
+            {
+              attention: work.some((i) => i.state === "Needs Attention"),
+              concept: work.some((i) => i.state === "Concept"),
+            },
+          ] as const;
+        } catch {
+          return [p.slug, undefined] as const;
+        }
+      }),
+    );
+    setProjectSignals(Object.fromEntries(summaries));
     setSlug(
       (current) =>
         preferred ??
@@ -313,6 +337,13 @@ function App() {
           : [];
       if (generation !== loadGeneration.current) return;
       setItems(work);
+      setProjectSignals((previous) => ({
+        ...previous,
+        [slug]: {
+          attention: work.some((i) => i.state === "Needs Attention"),
+          concept: work.some((i) => i.state === "Concept"),
+        },
+      }));
       setDocs(pages);
       setMembers(people);
     } finally {
@@ -460,31 +491,20 @@ function App() {
         <div className="workspace-label">
           WORKSPACE <span className="tiny-dot" />
         </div>
-        <label className="sr-only" htmlFor="project-switch">
-          Project
-        </label>
-        <select
-          id="project-switch"
-          disabled={busy || editDoc}
-          className="project-switch"
+        <ProjectPicker
+          projects={projects}
           value={slug}
-          onChange={(e) => {
+          disabled={busy || editDoc}
+          signals={projectSignals}
+          onChange={(value) => {
             navigate("/");
-            setSlug(e.target.value);
+            setSlug(value);
             setTree("User");
             setTab("Board");
             setSearch("");
+            setShowDependencies(false);
           }}
-        >
-          <option value="" disabled>
-            Select project
-          </option>
-          {projects.map((p) => (
-            <option key={p.slug} value={p.slug}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        />
         {me?.canCreateProject && (
           <button
             className="quiet new-project"
@@ -493,6 +513,13 @@ function App() {
             <Plus size={15} /> New project
           </button>
         )}
+        <button
+          className="quiet dependency-view-button"
+          disabled={!slug || busy || editDoc || loading}
+          onClick={() => setShowDependencies(true)}
+        >
+          <ListTree size={15} /> Dependency View
+        </button>
         <div className="nav-label">PROJECT</div>
         <nav>
           {(
@@ -1227,6 +1254,17 @@ function App() {
           )}
         </div>
       </main>
+      {showDependencies && (
+        <Dialog
+          title={`Dependency View · ${project?.name ?? slug}`}
+          className="dependency-dialog"
+          close={() => setShowDependencies(false)}
+        >
+          <DependencyView
+            items={items.filter((item) => item.project === slug)}
+          />
+        </Dialog>
+      )}
       {deletedProject && (
         <Dialog title="Project deletion" close={() => setDeletedProject("")}>
           <ProjectGroups project={deletedProject} deleted />
