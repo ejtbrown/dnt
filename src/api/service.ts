@@ -1234,7 +1234,7 @@ export class Service {
       if (!id && method === "GET")
         return {
           status: 200,
-          body: await this.itemPage(pk, req),
+          body: await this.itemPage(pk, req, project),
         };
       if (!id && method === "POST") {
         const input = itemInput.parse(req.body);
@@ -1246,7 +1246,7 @@ export class Service {
             true,
             req.principal,
           );
-          const ordinal = project.value.sequence + 1;
+          const ordinal = input.ordinal ?? project.value.sequence + 1;
           if (ordinal > 999999999999)
             throw new HttpError(409, "Project identifier space exhausted");
           const value: WorkItem = {
@@ -1277,7 +1277,7 @@ export class Service {
               {
                 row: row(pk, "META", {
                   ...project.value,
-                  sequence: ordinal,
+                  sequence: Math.max(project.value.sequence, ordinal),
                   version: project.version + 1,
                   updatedAt: now(),
                 }),
@@ -1297,7 +1297,7 @@ export class Service {
         if (method === "GET")
           return {
             status: 200,
-            body: current.value,
+            body: (await this.derivedItems([current.value], req, project))[0],
             headers: { etag: `"${current.version}"` },
           };
         if (method === "PATCH") {
@@ -1647,9 +1647,76 @@ export class Service {
       },
     };
   }
-  async itemPage(pk: string, req: Request) {
+  async itemPage(pk: string, req: Request, project: Row<Project>) {
     const result = await this.page<WorkItem>(pk, "ITEM#", req);
-    return { ...result, items: result.items.filter((item) => !item.deletedAt) };
+    return {
+      ...result,
+      items: await this.derivedItems(
+        result.items.filter((item) => !item.deletedAt),
+        req,
+        project,
+      ),
+    };
+  }
+  // Aggregate from a complete, current project snapshot, not just this list page.
+  // META changes on every mutation; checking the original lock after all reads
+  // rejects torn snapshots, concurrent moves/deletions and membership ABA races.
+  async derivedItems(items: WorkItem[], req: Request, project: Row<Project>) {
+    let all: WorkItem[] = [];
+    if (items.some((item) => item.kind !== "Task")) {
+      let after: string | undefined;
+      do {
+        const page = await this.db.query<WorkItem>(
+          project.pk,
+          "ITEM#",
+          100,
+          after,
+        );
+        all.push(
+          ...page.rows.map((r) => r.value).filter((item) => !item.deletedAt),
+        );
+        after = page.next;
+      } while (after);
+    }
+    const children = new Map<string, WorkItem[]>();
+    for (const item of all) {
+      if (item.parentId)
+        children.set(item.parentId, [
+          ...(children.get(item.parentId) ?? []),
+          item,
+        ]);
+    }
+    const state = (item: WorkItem): WorkItem["state"] => {
+      const tasks =
+        item.kind === "Epic"
+          ? (children.get(item.id) ?? []).filter(
+              (child) => child.kind === "Task",
+            )
+          : (children.get(item.id) ?? [])
+              .filter((child) => child.kind === "Epic")
+              .flatMap((epic) =>
+                (children.get(epic.id) ?? []).filter(
+                  (child) => child.kind === "Task",
+                ),
+              );
+      // An empty container is Concept, never vacuously Done.
+      if (tasks.length === 0 || tasks.every((task) => task.state === "Concept"))
+        return "Concept";
+      if (tasks.every((task) => task.state === "Done")) return "Done";
+      return "Implement";
+    };
+    await this.membership(req.principal, project.value.slug);
+    const current = await this.db.get<Project>(project.pk, "META");
+    if (!current || current.value.deletedAt)
+      throw new HttpError(404, "Project not found");
+    if (current.version !== project.version)
+      throw new HttpError(
+        409,
+        "Project changed while reading hierarchy. Retry the read.",
+      );
+    return items.map((item) =>
+      item.kind === "Task" ? item : { ...item, state: state(item) },
+    );
   }
   async itemRevisionWrites(
     pk: string,
@@ -1701,10 +1768,13 @@ export class Service {
         throw new HttpError(400, "Too many linked projects");
       const target = need(
         await this.db.get<WorkItem>(projectKey(slug), itemKey(slug, id)),
-        "Linked task not found",
+        "Linked work item not found",
       );
-      if (target.value.kind !== "Task" || target.value.deletedAt)
-        throw new HttpError(400, "Relationships must reference active tasks");
+      if (target.value.deletedAt)
+        throw new HttpError(
+          400,
+          "Relationships must reference active work items",
+        );
       return target.value;
     };
     for (const id of new Set([
@@ -1712,7 +1782,7 @@ export class Service {
       ...(fields.relatedTasks ? (value.relatedTasks ?? []) : []),
     ])) {
       if (id === value.id)
-        throw new HttpError(400, "A task cannot link to itself");
+        throw new HttpError(400, "A work item cannot link to itself");
       await load(id);
     }
     // Reject dependency cycles; related links deliberately carry no scheduling semantics.
@@ -1741,16 +1811,8 @@ export class Service {
     principal?: string,
     linkFields = { dependencies: true, relatedTasks: true },
   ) {
-    if (
-      value.kind !== "Task" &&
-      (value.dueDate ||
-        value.dependencies?.length ||
-        value.relatedTasks?.length)
-    )
-      throw new HttpError(
-        400,
-        "Only tasks have due dates and task relationships",
-      );
+    if (value.kind !== "Task" && value.dueDate)
+      throw new HttpError(400, "Only tasks have due dates");
     const checks = principal
       ? await this.validateTaskLinks(value, principal, linkFields)
       : [];

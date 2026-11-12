@@ -67,7 +67,7 @@ const taskId = z.string().regex(/^[A-Z][A-Z0-9]{1,9}-[1-9]\d{0,11}$/);
 const taskLinks = z
   .array(taskId)
   .max(50)
-  .refine((v) => new Set(v).size === v.length, "Duplicate task links");
+  .refine((v) => new Set(v).size === v.length, "Duplicate work item links");
 const dueDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -78,6 +78,15 @@ const dueDate = z
 export const itemInput = z
   .object({
     kind: z.enum(kinds),
+    ordinal: z
+      .number()
+      .int()
+      .min(1)
+      .max(999_999_999_999)
+      .optional()
+      .describe(
+        "Optional exact project ticket number for migration. Collisions fail; numbers are never reused. Omit for automatic allocation.",
+      ),
     title,
     description: z.string().max(20_000).default(""),
     parentId: z.string().max(32).nullable().default(null),

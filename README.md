@@ -49,7 +49,7 @@ Roles apply across all project content. Documentation trees organize audiences, 
 | Manage project membership/invite existing accounts    | No   | No         | Yes           |
 | Read full project audit                               | No   | No         | Yes           |
 
-Task scope/state revisions and before/after audit events are immutable. Tasks support Cancelled, optional due dates, cross-project dependency and related-task IDs. Replies link the exact parent revision, and thumbs-up is explicitly either approval or acknowledgement. Historical Jira evidence can be imported without manufacturing a new live approval. See [workflow and migration](workflow.md) and [change notifications](change-events.md).
+Task scope/state revisions and before/after audit events are immutable. Tasks support Cancelled and optional due dates; all work item kinds support cross-project dependencies and related-item IDs. Epic/Initiative states roll up from descendant Tasks. Exact optional creation ordinals support source ticket-number preservation. Replies link the exact parent revision, and thumbs-up is explicitly either approval or acknowledgement. Historical Jira evidence can be imported without manufacturing a new live approval. See [workflow and migration](workflow.md) and [change notifications](change-events.md).
 
 Creating and deleting projects requires current membership in the shared Cognito `dnt-admin` group. Deletion also requires Administrator access to the target project. Creation grants the creator Administrator on that project; the global group does not grant access to other projects. Identity operators manage `dnt-admin` membership in Cognito. IAM principals cannot create or delete projects. The final project Administrator cannot be removed or demoted.
 
