@@ -153,6 +153,15 @@ export const operations: Operation[] = [
     path: (a) => `${projectPath(a)}/groups/reconcile`,
   },
   {
+    name: "list_assignees",
+    operationId: "listAssignees",
+    method: "GET",
+    description:
+      "List current project members' display names and principal IDs for assignment. Maintainer required. No global directory, email, role or membership-management data. Paginate all results; store the selected principal, not the display name.",
+    schema: z.object({ project, ...pagination }).strict(),
+    path: (a) => `${projectPath(a)}/assignees`,
+  },
+  {
     name: "list_project_users",
     operationId: "listProjectUsers",
     method: "GET",

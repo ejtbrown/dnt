@@ -1712,3 +1712,12 @@ textarea::placeholder {
   margin: 0.5rem 0;
   overflow-wrap: anywhere;
 }
+
+.new-comment-composer {
+  margin-bottom: 1.25rem;
+}
+.inline-reply-composer {
+  margin: 0.75rem 0 0.75rem 1rem;
+  padding: 1rem;
+  border-left: 2px solid var(--border, #d8dedb);
+}

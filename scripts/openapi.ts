@@ -99,19 +99,54 @@ const document = object({
   attribution: ref("Attribution"),
 });
 const schemas: Record<string, unknown> = {
-  Change: object({ eventId: string, sequence: { type: "integer", minimum: 1 }, project: string, action: string, target: string, at: date,
-    resource: object({ entityType: { enum: ["work_item", "document", "comment", "reaction"] }, id: string, version,
-      itemId: string, commentId: string, tree: { enum: roles }, kind: { enum: kinds }, url: { type: "string", format: "uri" } }, ["entityType", "id", "version"]),
-  }, ["eventId", "sequence", "project", "action", "target", "at"]),
-  ChangeGap: object({ error: string, baselineRequired: { const: true }, watermark: { type: "integer", minimum: 0 }, checkpoint: string, coverage: { type: "object" } }),
-  ChangePage: object({
-    items: { type: "array", items: ref("Change") },
+  Change: object(
+    {
+      eventId: string,
+      sequence: { type: "integer", minimum: 1 },
+      project: string,
+      action: string,
+      target: string,
+      at: date,
+      resource: object(
+        {
+          entityType: {
+            enum: ["work_item", "document", "comment", "reaction"],
+          },
+          id: string,
+          version,
+          itemId: string,
+          commentId: string,
+          tree: { enum: roles },
+          kind: { enum: kinds },
+          url: { type: "string", format: "uri" },
+        },
+        ["entityType", "id", "version"],
+      ),
+    },
+    ["eventId", "sequence", "project", "action", "target", "at"],
+  ),
+  ChangeGap: object({
+    error: string,
+    baselineRequired: { const: true },
     watermark: { type: "integer", minimum: 0 },
-    nextCursor: string,
     checkpoint: string,
-    baselineRequired: { type: "boolean" },
-    coverage: object({ firstSequence: { type: ["integer", "null"] }, historyComplete: { type: "boolean" }, note: string }),
-  }, ["items", "watermark", "baselineRequired", "coverage"]),
+    coverage: { type: "object" },
+  }),
+  ChangePage: object(
+    {
+      items: { type: "array", items: ref("Change") },
+      watermark: { type: "integer", minimum: 0 },
+      nextCursor: string,
+      checkpoint: string,
+      baselineRequired: { type: "boolean" },
+      coverage: object({
+        firstSequence: { type: ["integer", "null"] },
+        historyComplete: { type: "boolean" },
+        note: string,
+      }),
+    },
+    ["items", "watermark", "baselineRequired", "coverage"],
+  ),
   PublicDocument: object({
     id: { type: "string", format: "uuid" },
     tree: { enum: roles },
@@ -242,6 +277,7 @@ const schemas: Record<string, unknown> = {
   }),
   GroupSyncQueued: object({ project: string, status: { const: "pending" } }),
   Membership: membership,
+  Assignee: object({ principal: string, name: string }),
   WorkItem: item,
   Document: document,
   DocumentContent: {
@@ -287,6 +323,7 @@ for (const [name, schema] of Object.entries({
   schemas[name] = z.toJSONSchema(schema, { io: "input" });
 for (const name of [
   "DirectoryUser",
+  "Assignee",
   "Membership",
   "WorkItem",
   "Document",
@@ -357,11 +394,19 @@ function route(
       },
     );
   if (operationId === "listChanges") {
-    (parameters.find((p: any) => p.name === "limit") as any).schema.default = 25;
+    (parameters.find((p: any) => p.name === "limit") as any).schema.default =
+      25;
     const cursor = parameters.find((p: any) => p.name === "cursor") as any;
     cursor.schema = { type: "string", maxLength: 4096 };
-    cursor.description = "Opaque nextCursor or drained checkpoint; reuse unchanged. A checkpoint starts a new fixed watermark window.";
-    parameters.push({ name: "since", in: "query", schema: date, description: "Optional initial timestamp only; cannot combine with cursor. Check coverage before assuming historic completeness." });
+    cursor.description =
+      "Opaque nextCursor or drained checkpoint; reuse unchanged. A checkpoint starts a new fixed watermark window.";
+    parameters.push({
+      name: "since",
+      in: "query",
+      schema: date,
+      description:
+        "Optional initial timestamp only; cannot combine with cursor. Check coverage before assuming historic completeness.",
+    });
   }
   if (operationId === "compareDocumentRevisions")
     parameters.push(
@@ -410,10 +455,12 @@ function route(
       }[code],
       content: json(ref("Error")),
     };
-  if (operationId === "listChanges") responses[409] = {
-    description: "Sequence gap: recovery checkpoint must precede a fresh full snapshot, then replay. Do not mark consumed blindly.",
-    content: json(ref("ChangeGap")),
-  };
+  if (operationId === "listChanges")
+    responses[409] = {
+      description:
+        "Sequence gap: recovery checkpoint must precede a fresh full snapshot, then replay. Do not mark consumed blindly.",
+      content: json(ref("ChangeGap")),
+    };
   responses[
     options.status ??
       (method === "post" ? 201 : method === "delete" ? 204 : 200)
@@ -686,6 +733,15 @@ route(
   "getDocumentRevision",
   "Read a previous revision; save its content with PATCH to restore",
   "DocumentContent",
+);
+route(
+  "/projects/{project}/assignees",
+  "get",
+  "listAssignees",
+  "Current project member names and principal IDs only; Maintainer required",
+  "AssigneePage",
+  undefined,
+  { paginated: true },
 );
 route(
   "/projects/{project}/members",

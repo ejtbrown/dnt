@@ -420,6 +420,10 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
           true,
         );
       assert.equal(
+        (await call("list_assignees", { project: "ROOT" })).items.length,
+        2,
+      );
+      assert.equal(
         (await call("list_members", { project: "ROOT" })).items.length,
         2,
       );
@@ -458,7 +462,11 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
     assert.ok(
       (await call("list_audit_events", { project: "ROOT" })).items.length > 10,
     );
-    let changes = await call("list_changes", { project: "ROOT", limit: 2, since: "2020-01-01T00:00:00.000Z" });
+    let changes = await call("list_changes", {
+      project: "ROOT",
+      limit: 2,
+      since: "2020-01-01T00:00:00.000Z",
+    });
     const watermark = changes.watermark;
     const ids = new Set<string>();
     while (true) {
@@ -470,11 +478,18 @@ test("MCP exposes the full project, hierarchy, workflow, assignment, docs/histor
         assert.equal(event.principal, undefined);
       }
       if (!changes.nextCursor) break;
-      changes = await call("list_changes", { project: "ROOT", limit: 2, cursor: changes.nextCursor });
+      changes = await call("list_changes", {
+        project: "ROOT",
+        limit: 2,
+        cursor: changes.nextCursor,
+      });
     }
     assert.ok(changes.checkpoint);
     assert.ok(ids.size > 10);
-    const idle = await call("list_changes", { project: "ROOT", cursor: changes.checkpoint });
+    const idle = await call("list_changes", {
+      project: "ROOT",
+      cursor: changes.checkpoint,
+    });
     assert.deepEqual(idle.items, []);
     assert.ok(idle.checkpoint);
     assert.equal(
