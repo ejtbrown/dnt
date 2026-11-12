@@ -831,6 +831,30 @@ export class Service {
         body: project.value,
         headers: { etag: `"${project.version}"` },
       };
+    if (child === "assignees" && !id && path.length === 3 && method === "GET") {
+      this.requireRole(membership, "Maintainer");
+      const page = await this.page<Membership>(pk, "MEMBER#", req);
+      const currentMember = await this.membership(req.principal, slug);
+      this.requireRole(currentMember, "Maintainer");
+      const currentProject = await this.db.get<Project>(pk, "META");
+      if (!currentProject || currentProject.value.deletedAt)
+        throw new HttpError(404, "Project not found");
+      if (currentProject.version !== project.version)
+        throw new HttpError(
+          409,
+          "Project changed while reading assignees. Retry the read.",
+        );
+      return {
+        status: 200,
+        body: {
+          ...page,
+          items: page.items.map(({ principal, name }) => ({
+            principal,
+            name: name || principal,
+          })),
+        },
+      };
+    }
     if (child === "members") {
       this.requireRole(membership, "Administrator");
       if (!id && method === "GET")

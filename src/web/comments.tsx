@@ -6,6 +6,7 @@ import {
 } from "../shared/model.js";
 import { api, all } from "./api.js";
 import { Content, MarkdownField } from "./markdown.js";
+import { commentThreads } from "./comment-threads.js";
 import { itemLink } from "../shared/links.js";
 type Reaction = {
   id: string;
@@ -186,7 +187,13 @@ function Comment({
       )}
       {comment.parentCommentId && (
         <p className="byline">
-          Reply to comment revision {comment.parentCommentVersion ?? "unknown"}
+          Reply to{" "}
+          <a
+            href={`${itemLink(comment.itemId)}#comment-${comment.parentCommentId}`}
+          >
+            original comment
+          </a>{" "}
+          revision {comment.parentCommentVersion ?? "unknown"}
         </p>
       )}
       <a
@@ -426,15 +433,13 @@ export function WorkItemComments({
     [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false);
   const [replyTo, setReplyTo] = useState<WorkItemComment>();
+  const [replyContent, setReplyContent] = useState("");
   const composer = useRef<HTMLDivElement>(null);
-  const value = JSON.stringify({
-    content,
-    parentCommentId: replyTo?.id ?? null,
-    parentCommentVersion: replyTo?.version,
-  });
-  const request = useRef({ value, key: crypto.randomUUID() });
-  if (request.current.value !== value)
-    request.current = { value, key: crypto.randomUUID() };
+  const requestKeys = useRef(new Map<string, string>());
+  const inFlight = useRef(false);
+  useEffect(() => {
+    if (replyTo) composer.current?.scrollIntoView({ block: "center" });
+  }, [replyTo?.id]);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -463,43 +468,93 @@ export function WorkItemComments({
     window.addEventListener("hashchange", scroll);
     return () => window.removeEventListener("hashchange", scroll);
   }, [comments]);
-  const render = (
-    comment: WorkItemComment,
-    ancestors: string[] = [],
-    depth = 0,
-  ): React.ReactNode => {
-    if (ancestors.includes(comment.id)) return null;
-    const children = comments.filter((c) => c.parentCommentId === comment.id);
-    return (
-      <div key={comment.id} className="comment-thread">
-        <Comment
-          comment={comment}
-          path={path}
-          canWrite={canWrite}
-          principal={principal}
-          canEdit={canWrite}
-          updated={(value) =>
-            setComments((current) =>
-              current.map((c) => (c.id === value.id ? value : c)),
-            )
-          }
-          reply={(c) => {
-            setReplyTo(c);
-            composer.current?.scrollIntoView({ block: "center" });
-          }}
-        />
-        {children.length > 0 && (
-          <div
-            className={depth < 5 ? "comment-replies" : "comment-replies-flat"}
+  async function post(reply = false) {
+    if (inFlight.current) return;
+    const body = {
+      content: reply ? replyContent : content,
+      parentCommentId: reply ? (replyTo?.id ?? null) : null,
+      parentCommentVersion: reply ? replyTo?.version : undefined,
+    };
+    const value = JSON.stringify(body);
+    if (!requestKeys.current.has(value))
+      requestKeys.current.set(value, crypto.randomUUID());
+    inFlight.current = true;
+    setSaving(true);
+    setError("");
+    try {
+      await api(path, "POST", body, undefined, requestKeys.current.get(value));
+      setComments(await all<WorkItemComment>(path));
+      // Retain the key on uncertain failure. A later deliberate identical post
+      // after a successful completion is a different action.
+      requestKeys.current.delete(value);
+      if (reply) {
+        setReplyContent("");
+        setReplyTo(undefined);
+      } else setContent("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }
+  const form = (reply = false) => (
+    <form
+      aria-label={reply ? "Reply composer" : "New comment composer"}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void post(reply);
+      }}
+    >
+      {reply && replyTo && (
+        <div className="reply-context">
+          Replying to{" "}
+          <a href={`${itemLink(itemId)}#comment-${replyTo.id}`}>
+            {attributionLabel(replyTo.attribution)}’s root comment
+          </a>
+          <button
+            type="button"
+            className="quiet"
+            disabled={saving}
+            onClick={() => setReplyTo(undefined)}
           >
-            {children.map((c) =>
-              render(c, [...ancestors, comment.id], depth + 1),
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
+            Cancel reply
+          </button>
+        </div>
+      )}
+      <MarkdownField
+        label={reply ? "Reply" : "Comment"}
+        value={reply ? replyContent : content}
+        onChange={reply ? setReplyContent : setContent}
+        maxLength={20000}
+        disabled={saving}
+      />
+      <button
+        className="secondary"
+        disabled={loading || saving || !(reply ? replyContent : content).trim()}
+      >
+        {saving ? "Posting…" : reply ? "Post reply" : "Post comment"}
+      </button>
+    </form>
+  );
+  const renderComment = (comment: WorkItemComment, root: WorkItemComment) => (
+    <Comment
+      key={comment.id}
+      comment={comment}
+      path={path}
+      canWrite={canWrite}
+      principal={principal}
+      canEdit={canWrite}
+      updated={(value) =>
+        setComments((current) =>
+          current.map((c) => (c.id === value.id ? value : c)),
+        )
+      }
+      reply={() => {
+        if (!saving) setReplyTo(root);
+      }}
+    />
+  );
   return (
     <section className="task-comments" aria-label="Work item comments">
       <h3>Comments</h3>
@@ -508,79 +563,31 @@ export function WorkItemComments({
           {error}
         </p>
       )}
+      {canWrite && <div className="new-comment-composer">{form()}</div>}
       {loading ? (
         <p>Loading comments…</p>
       ) : comments.length === 0 ? (
         <p className="muted">No comments yet.</p>
       ) : (
-        comments
-          .filter(
-            (c) =>
-              !c.parentCommentId ||
-              !comments.some((p) => p.id === c.parentCommentId),
-          )
-          .map((c) => render(c))
-      )}
-      {canWrite && (
-        <div ref={composer}>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setSaving(true);
-              setError("");
-              try {
-                await api(
-                  path,
-                  "POST",
-                  {
-                    content,
-                    parentCommentId: replyTo?.id ?? null,
-                    parentCommentVersion: replyTo?.version,
-                  },
-                  undefined,
-                  request.current.key,
-                );
-                setComments(await all<WorkItemComment>(path));
-                setContent("");
-                setReplyTo(undefined);
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setSaving(false);
-              }
-            }}
+        commentThreads(comments).map(({ root, replies }) => (
+          <div
+            key={root.id}
+            className="comment-thread"
+            data-root-comment={root.id}
           >
-            {replyTo && (
-              <div className="reply-context">
-                Replying to{" "}
-                <a href={`${itemLink(itemId)}#comment-${replyTo.id}`}>
-                  {attributionLabel(replyTo.attribution)}’s comment
-                </a>
-                <button
-                  type="button"
-                  className="quiet"
-                  disabled={saving}
-                  onClick={() => setReplyTo(undefined)}
-                >
-                  Cancel reply
-                </button>
+            {renderComment(root, root)}
+            {canWrite && replyTo?.id === root.id && (
+              <div className="inline-reply-composer" ref={composer}>
+                {form(true)}
               </div>
             )}
-            <MarkdownField
-              label={replyTo ? "Reply" : "Comment"}
-              value={content}
-              onChange={setContent}
-              maxLength={20000}
-              disabled={saving}
-            />
-            <button
-              className="secondary"
-              disabled={loading || saving || !content.trim()}
-            >
-              {saving ? "Posting…" : replyTo ? "Post reply" : "Post comment"}
-            </button>
-          </form>
-        </div>
+            {replies.length > 0 && (
+              <div className="comment-replies">
+                {replies.map((comment) => renderComment(comment, root))}
+              </div>
+            )}
+          </div>
+        ))
       )}
     </section>
   );

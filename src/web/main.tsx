@@ -1,3 +1,4 @@
+import { AssigneePicker } from "./assignee-picker.js";
 import { ProjectGroups, UserPicker } from "./groups.js";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -1304,6 +1305,7 @@ function App() {
               <ItemForm
                 key={editItem?.id ?? "new"}
                 initial={editItem}
+                project={slug}
                 items={items}
                 role={role}
                 busy={busy}
@@ -1493,12 +1495,14 @@ function ProjectForm({
   );
 }
 function ItemForm({
+  project,
   initial,
   items,
   role,
   save,
   busy,
 }: {
+  project: string;
   initial?: WorkItem;
   items: WorkItem[];
   role: Role;
@@ -1675,14 +1679,12 @@ function ItemForm({
             </>
           )}
         </section>
-        <label>
-          Assignee identity (optional)
-          <input
-            value={assignee}
-            onChange={(e) => setAssignee(e.target.value)}
-            placeholder="cognito:<sub> or iam:<role ARN>"
-          />
-        </label>
+        <AssigneePicker
+          project={project}
+          principal={assignee}
+          onChange={setAssignee}
+          readOnly={readOnly}
+        />
         <section aria-label="Work item scheduling and links">
           {kind === "Task" && (
             <label>
