@@ -170,6 +170,15 @@ test("Public is opt-in, anonymous readers see one formatted page, and cancellati
   await expect(checkbox).not.toBeChecked();
   const reader = await context.newPage();
   await f.route(reader, false);
+  await reader.route("https://login.example.com/oauth2/authorize?*", (r) => {
+    const state = new URL(r.request().url()).searchParams.get("state");
+    return r.fulfill({
+      status: 302,
+      headers: {
+        location: `http://127.0.0.1:5173/auth/callback?error=login_required&state=${state}`,
+      },
+    });
+  });
   await reader.goto(path);
   await expect(reader.getByRole("alert")).toContainText("unavailable");
   await expect(reader.getByRole("heading", { name: doc.title })).toHaveCount(0);
@@ -237,11 +246,22 @@ test("sign-in returns to private work/document links and same-site navigation ke
     await page.route(
       "https://login.example.com/oauth2/authorize?*",
       async (r) => {
-        state = new URL(r.request().url()).searchParams.get("state")!;
+        const query = new URL(r.request().url()).searchParams;
+        state = query.get("state")!;
+        if (query.get("prompt") === "none") {
+          return r.fulfill({
+            status: 302,
+            headers: {
+              location: `http://127.0.0.1:5173/auth/callback?error=login_required&state=${state}`,
+            },
+          });
+        }
         await r.fulfill({ contentType: "text/html", body: "Sign in" });
       },
     );
     await page.goto(path);
+    await expect(page.getByRole("button", { name: /^Sign in/ })).toBeVisible();
+    await expect(page).toHaveURL(path);
     await page.getByRole("button", { name: /^Sign in/ }).click();
     await expect(page).toHaveURL(/login.example.com/);
     await page.goto(

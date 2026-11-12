@@ -1,3 +1,4 @@
+import { useDraftState } from "./session-drafts.js";
 import React, { useEffect, useRef, useState } from "react";
 import { all } from "./api.js";
 type Person = { principal: string; name: string };
@@ -13,15 +14,23 @@ export function AssigneePicker({
   readOnly: boolean;
 }) {
   const [people, setPeople] = useState<Person[]>([]);
-  const [query, setQuery] = useState(principal);
-  const [editing, setEditing] = useState(false);
+  const [query, setQuery] = useDraftState(
+    `assignee:${project}:query`,
+    principal,
+  );
+  const [editing, setEditing] = useDraftState(
+    `assignee:${project}:editing`,
+    false,
+  );
   const [error, setError] = useState("");
+  const firstLoad = useRef(true);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     let active = true;
     setPeople([]);
     setError("");
-    setEditing(false);
+    if (!firstLoad.current) setEditing(false);
+    firstLoad.current = false;
     if (!readOnly)
       all<Person>(`/projects/${project}/assignees`)
         .then((rows) => {
