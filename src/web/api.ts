@@ -18,6 +18,7 @@ let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 let renewalPending = false;
 let activeRequests = 0;
 let renewalQueued = false;
+let authGeneration = 0;
 function expired() {
   window.dispatchEvent(new Event("dnt-session-expired"));
 }
@@ -184,7 +185,12 @@ function queueRenewal() {
   }
   if (renewalPending || renewalQueued || !token || config.local) return;
   renewalQueued = true;
+  const generation = authGeneration;
   const ready = () => {
+    if (generation !== authGeneration) {
+      renewalQueued = false;
+      return;
+    }
     if (activeRequests) {
       setTimeout(ready, 100);
       return;
@@ -192,6 +198,7 @@ function queueRenewal() {
     // Let completed requests commit their React state before capturing drafts.
     setTimeout(() => {
       renewalQueued = false;
+      if (generation !== authGeneration) return;
       void renewSession().catch(expired);
     }, 0);
   };
@@ -202,8 +209,10 @@ export async function renewSession(interactive = false) {
   const account = subject(token);
   if (!account) throw new Error("Sign in again to continue your session.");
   renewalPending = true;
+  const generation = authGeneration;
   try {
     const attempt = await authorization(!interactive);
+    if (generation !== authGeneration) return;
     // Authorization hashes asynchronously. A request may start while it is
     // being prepared, or after the queue's idle check. Recheck immediately
     // before the synchronous snapshot/navigation, allowing React to settle.
@@ -211,7 +220,9 @@ export async function renewSession(interactive = false) {
       await new Promise((resolve) =>
         setTimeout(resolve, activeRequests ? 100 : 0),
       );
+      if (generation !== authGeneration) return;
     } while (activeRequests);
+    if (generation !== authGeneration) return;
     saveDrafts(account, location.pathname + location.hash);
     sessionStorage.setItem("dnt.auto-signin-blocked", "true");
     sessionStorage.setItem("dnt.oauth", attempt.transaction);
@@ -223,6 +234,8 @@ export async function renewSession(interactive = false) {
   }
 }
 export function logout() {
+  authGeneration++;
+  renewalPending = false;
   clearDrafts();
   sessionStorage.setItem("dnt.auto-signin-blocked", "true");
   sessionStorage.removeItem("dnt.previous-session");

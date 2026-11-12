@@ -36,6 +36,7 @@ test("silent top-level renewal restores drafts and view without replay or redire
   });
   let holdMutation: Promise<void> | undefined;
   let releaseMutation: (() => void) | undefined;
+  let blockLogoutNavigation = false;
   const prompts: (string | null)[] = [];
   let mode = "success",
     exchanges = 0,
@@ -87,9 +88,10 @@ test("silent top-level renewal restores drafts and view without replay or redire
       });
     },
   );
-  await context.route("https://login.example.com/logout?*", (r) =>
-    r.fulfill({ body: "Signed out", contentType: "text/html" }),
-  );
+  await context.route("https://login.example.com/logout?*", async (r) => {
+    if (blockLogoutNavigation) return r.abort("aborted");
+    await r.fulfill({ body: "Signed out", contentType: "text/html" });
+  });
   await context.route("**/api/v1/**", async (r) => {
     const req = r.request(),
       url = new URL(req.url());
@@ -322,8 +324,68 @@ test("silent top-level renewal restores drafts and view without replay or redire
     "Maintainer",
   );
   await page.getByRole("button", { name: "Close dialog" }).click();
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
-  await expect(page).toHaveURL(/login.example.com\/logout/);
+  for (const phase of ["digest", "request-wait"]) {
+    await page
+      .locator("nav")
+      .getByRole("button", { name: "Planning", exact: true })
+      .click();
+    await page.getByRole("button", { name: /SSO-3/ }).click();
+    await page
+      .getByRole("textbox", { name: "Comment", exact: true })
+      .fill("Logout draft");
+    await page.evaluate(() => {
+      const digest = crypto.subtle.digest.bind(crypto.subtle);
+      crypto.subtle.digest = async (...args) => {
+        await new Promise<void>((resolve) => {
+          (window as any).releaseDigest = resolve;
+        });
+        crypto.subtle.digest = digest;
+        return digest(...args);
+      };
+    });
+    const attempts = authorizeCount;
+    await page.clock.runFor(871_000);
+    await expect
+      .poll(() => page.evaluate(() => !!(window as any).releaseDigest))
+      .toBe(true);
+    if (phase === "request-wait") {
+      holdMutation = new Promise<void>((resolve) => {
+        releaseMutation = resolve;
+      });
+      const previousWrites = writes;
+      await page
+        .getByRole("button", { name: "Post comment", exact: true })
+        .click();
+      await expect.poll(() => writes).toBe(previousWrites + 1);
+      await page.evaluate(() => (window as any).releaseDigest());
+      await page.clock.runFor(100);
+    }
+    await page.getByRole("button", { name: "Close dialog" }).click();
+    // Keep the old document alive after logout to expose any late renewal.
+    blockLogoutNavigation = true;
+    await page
+      .getByRole("button", { name: "Sign out", exact: true })
+      .click({ noWaitAfter: true });
+    if (phase === "digest")
+      await page.evaluate(() => (window as any).releaseDigest());
+    else {
+      releaseMutation!();
+      holdMutation = undefined;
+    }
+    await page.clock.runFor(500);
+    expect(authorizeCount).toBe(attempts);
+    expect(
+      await page.evaluate(() => sessionStorage.getItem("dnt.renewal-drafts")),
+    ).toBeNull();
+    blockLogoutNavigation = false;
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: /^Sign in/ })).toBeVisible();
+    expect(authorizeCount).toBe(attempts);
+    if (phase === "digest") {
+      await page.getByRole("button", { name: /^Sign in/ }).click();
+      await expect(page.locator("nav")).toBeVisible();
+    }
+  }
   const loggedOutAttempts = authorizeCount;
   await page.goto("/");
   await expect(page.getByRole("button", { name: /^Sign in/ })).toBeVisible();
