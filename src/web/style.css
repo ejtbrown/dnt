@@ -1721,3 +1721,72 @@ textarea::placeholder {
   padding: 1rem;
   border-left: 2px solid var(--border, #d8dedb);
 }
+
+.project-picker {
+  position: relative;
+}
+.project-picker .project-switch,
+.project-options button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+}
+.project-signals {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.project-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.project-dot.attention {
+  background: #dc2626;
+}
+.project-dot.concept {
+  background: #2563eb;
+}
+.project-options {
+  position: absolute;
+  z-index: 50;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--panel, white);
+  border: 1px solid #ccc;
+  border-radius: 0.5rem;
+  padding: 0.3rem;
+  max-height: 60vh;
+  overflow: auto;
+  box-shadow: 0 8px 24px #0002;
+}
+.project-options button {
+  padding: 0.6rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  border-radius: 0.3rem;
+}
+.project-options button:hover,
+.project-options button:focus-visible {
+  background: #e5e7eb;
+}
+.dependency-view-button {
+  margin: 0.25rem 0 0.5rem;
+}
+dialog.dependency-dialog {
+  width: 90vw;
+  height: 90vh;
+  max-width: 90vw;
+  max-height: 90vh;
+  box-sizing: border-box;
+}
+.dependency-dialog .dialog-body {
+  overflow: auto;
+}

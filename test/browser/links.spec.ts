@@ -88,7 +88,8 @@ test("all work and document links survive reload, select their project and retai
       await page.goto(`/t/${item.id}`);
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible();
-      await expect(page.getByLabel("Project", { exact: true })).toHaveValue(
+      await expect(page.getByLabel("Project", { exact: true })).toHaveAttribute(
+        "value",
         "BB",
       );
       await expect(dialog.getByLabel("Title", { exact: true })).toHaveValue(
@@ -130,7 +131,10 @@ test("all work and document links survive reload, select their project and retai
     await expect(
       page.getByRole("heading", { name: doc.title, exact: true }),
     ).toBeVisible();
-    await expect(page.getByLabel("Project", { exact: true })).toHaveValue("BB");
+    await expect(page.getByLabel("Project", { exact: true })).toHaveAttribute(
+      "value",
+      "BB",
+    );
     await expect(
       page.getByRole("link", { name: "Direct link" }),
     ).toHaveAttribute("href", path);

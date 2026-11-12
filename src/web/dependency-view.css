@@ -1,0 +1,94 @@
+.dependency-view {
+  min-width: 0;
+}
+.dependency-view > p {
+  color: var(--muted);
+}
+.dependency-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.25rem;
+  padding: 0;
+  list-style: none;
+}
+.dependency-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.dependency-swatch {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid #26342f;
+  border-radius: 0.2rem;
+  background: var(--node-fill);
+}
+.dependency-tone-implement {
+  --node-fill: #c9eed0;
+  --node-line: #26733d;
+}
+.dependency-tone-concept {
+  --node-fill: #adcaff;
+  --node-line: #2455a0;
+}
+.dependency-tone-attention {
+  --node-fill: #ffc9c4;
+  --node-line: #a32928;
+}
+.dependency-tone-blocked-attention {
+  --node-fill: #ffdaa8;
+  --node-line: #98520b;
+}
+.dependency-tone-blocked-concept {
+  --node-fill: #def3ff;
+  --node-line: #48758d;
+}
+.dependency-tone-other {
+  --node-fill: #e3def0;
+  --node-line: #67547f;
+}
+.dependency-canvas {
+  max-width: 100%;
+  max-height: 58vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  border-radius: 0.6rem;
+}
+.dependency-canvas svg {
+  display: block;
+  overflow: visible;
+}
+.dependency-edge {
+  fill: none;
+  stroke: var(--node-line);
+  stroke-width: 1.8;
+}
+.dependency-canvas marker path {
+  fill: var(--node-line);
+}
+.dependency-node rect {
+  fill: var(--node-fill);
+  stroke: var(--node-line);
+  stroke-width: 2;
+}
+.dependency-node text {
+  fill: #182b35;
+  font-size: 12px;
+  pointer-events: none;
+}
+.dependency-node .dependency-node-id {
+  font-weight: 700;
+  font-size: 13px;
+}
+.dependency-node:focus rect,
+.dependency-node:hover rect {
+  stroke-width: 4;
+}
+.dependency-text {
+  margin-top: 1rem;
+}
+.dependency-text li {
+  margin: 0.7rem 0;
+}
