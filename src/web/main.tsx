@@ -4,6 +4,7 @@ import "./dependency-view.css";
 import { AssigneePicker } from "./assignee-picker.js";
 import { ProjectGroups, UserPicker } from "./groups.js";
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   BookOpen,
@@ -51,7 +52,16 @@ import {
   type PublicDocument,
 } from "../shared/model.js";
 import { itemLink, documentLink, parseDirectLink } from "../shared/links.js";
-import { api, ApiError, all, initialize, login, logout } from "./api.js";
+import {
+  api,
+  ApiError,
+  all,
+  initialize,
+  login,
+  logout,
+  renewSession,
+  cancelSessionRenewal,
+} from "./api.js";
 import "./style.css";
 
 type Tab = "Board" | "Planning" | "Documentation" | "Members" | "Activity";
@@ -80,7 +90,9 @@ function Dialog({
   children,
   close,
   className,
+  actionsRef,
 }: {
+  actionsRef?: React.Ref<HTMLDivElement>;
   title: string;
   className?: string;
   children: React.ReactNode;
@@ -94,6 +106,7 @@ function Dialog({
     <dialog ref={ref} onCancel={close} className={className}>
       <div className="dialog-title">
         <h2>{title}</h2>
+        {actionsRef && <div className="item-header-actions" ref={actionsRef} />}
         <button className="icon" aria-label="Close dialog" onClick={close}>
           <X size={20} />
         </button>
@@ -119,6 +132,22 @@ function Brand({
   );
 }
 function App() {
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [renewing, setRenewing] = useState(false);
+  const [renewalComplete, setRenewalComplete] = useState(false);
+  useEffect(() => {
+    const expired = () => setSessionExpired(true);
+    const renewed = () => {
+      setSessionExpired(false);
+      setError("");
+    };
+    window.addEventListener("dnt-session-expired", expired);
+    window.addEventListener("dnt-session-renewed", renewed);
+    return () => {
+      window.removeEventListener("dnt-session-expired", expired);
+      window.removeEventListener("dnt-session-renewed", renewed);
+    };
+  }, []);
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
   const [local, setLocal] = useState(false);
@@ -149,6 +178,7 @@ function App() {
   const [modal, setModal] = useState<
     "project" | "item" | "doc" | "member" | "history" | null
   >(null);
+  const [itemHeader, setItemHeader] = useState<HTMLDivElement | null>(null);
   const [editItem, setEditItem] = useState<WorkItem>();
   const [editDoc, setEditDoc] = useState(false);
   const [revisions, setRevisions] = useState<Document[]>([]);
@@ -211,7 +241,8 @@ function App() {
   }
   useEffect(() => {
     initialize()
-      .then(({ config, authenticated }) => {
+      .then(({ config, authenticated, renewalComplete }) => {
+        setRenewalComplete(!!renewalComplete);
         setPath(location.pathname);
         setLocal(!!config.local);
         setAuthed(authenticated);
@@ -412,19 +443,51 @@ function App() {
     (i) => i.kind === "Task" && i.state === "Done",
   ).length;
   const total = items.filter((i) => i.kind === "Task").length;
-  const message = error && (
-    <div className="error" role="alert">
-      <AlertCircle size={18} />
-      <span>{error}</span>
-      <button
-        className="icon"
-        aria-label="Dismiss error"
-        onClick={() => setError("")}
-      >
-        <X size={16} />
-      </button>
-    </div>
+  const message = (
+    <>
+      {sessionExpired && (
+        <div className="error" role="alert">
+          <span>
+            Continue your session to keep working. Your unsaved changes are
+            still here.
+          </span>
+          <button
+            disabled={renewing}
+            onClick={async () => {
+              setRenewing(true);
+              try {
+                await renewSession();
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setRenewing(false);
+              }
+            }}
+          >
+            {renewing ? "Signing in…" : "Continue session"}
+          </button>
+          {renewing && (
+            <button onClick={cancelSessionRenewal}>Cancel sign-in</button>
+          )}
+        </div>
+      )}
+      {error && (
+        <div className="error" role="alert">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+          <button
+            className="icon"
+            aria-label="Dismiss error"
+            onClick={() => setError("")}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+    </>
   );
+  if (renewalComplete)
+    return <p>Session renewed. You can close this window.</p>;
   if (!ready)
     return (
       <div className="welcome">
@@ -499,8 +562,12 @@ function App() {
           onChange={(value) => {
             navigate("/");
             setSlug(value);
-            setTree("User");
-            setTab("Board");
+            // Administrative sections are only available to project administrators.
+            if (
+              (tab === "Members" || tab === "Activity") &&
+              projects.find((p) => p.slug === value)?.role !== "Administrator"
+            )
+              setTab("Board");
             setSearch("");
             setShowDependencies(false);
           }}
@@ -1272,6 +1339,7 @@ function App() {
       )}
       {modal && (
         <Dialog
+          actionsRef={modal === "item" ? setItemHeader : undefined}
           className={
             modal === "item"
               ? "work-item-dialog"
@@ -1341,6 +1409,7 @@ function App() {
                 </p>
               )}
               <ItemForm
+                header={itemHeader}
                 key={editItem?.id ?? "new"}
                 initial={editItem}
                 project={slug}
@@ -1533,6 +1602,7 @@ function ProjectForm({
   );
 }
 function ItemForm({
+  header,
   project,
   initial,
   items,
@@ -1540,6 +1610,7 @@ function ItemForm({
   save,
   busy,
 }: {
+  header: HTMLDivElement | null;
   project: string;
   initial?: WorkItem;
   items: WorkItem[];
@@ -1608,11 +1679,51 @@ function ItemForm({
   const readOnly = rank(role) < 1;
   return (
     <form
+      id="work-item-form"
       onSubmit={(e) => {
         e.preventDefault();
         if (!readOnly) save(body, key);
       }}
     >
+      {header &&
+        createPortal(
+          <>
+            {kind !== "Task" && initial && (
+              <p>
+                State: {initial.state ?? "Concept"} (derived from descendant
+                Tasks)
+              </p>
+            )}
+            {kind === "Task" && (
+              <label className="header-state">
+                State
+                <select
+                  aria-label="State"
+                  disabled={busy || readOnly}
+                  value={state}
+                  onChange={(e) => setState(e.target.value as State)}
+                >
+                  {states.map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {initial && (
+              <button
+                type="submit"
+                form="work-item-form"
+                className="primary"
+                disabled={
+                  busy || readOnly || (kind !== "Initiative" && !parents.length)
+                }
+              >
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            )}
+          </>,
+          header,
+        )}
       <fieldset disabled={busy || readOnly} className="item-fields">
         <div className="form-row">
           <label>
@@ -1634,25 +1745,6 @@ function ItemForm({
                 ))}
             </select>
           </label>
-          {kind !== "Task" && initial && (
-            <p>
-              State: {initial.state ?? "Concept"} (derived from descendant
-              Tasks)
-            </p>
-          )}
-          {kind === "Task" && (
-            <label>
-              State
-              <select
-                value={state}
-                onChange={(e) => setState(e.target.value as State)}
-              >
-                {states.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
-            </label>
-          )}
         </div>
         {kind !== "Initiative" && (
           <label>
@@ -1783,17 +1875,19 @@ function ItemForm({
             </p>
           )}
         </section>
-        <div className="form-actions">
-          <button
-            className="primary"
-            disabled={
-              busy || !!readOnly || (kind !== "Initiative" && !parents.length)
-            }
-          >
-            <Check size={16} />
-            {busy ? "Saving…" : initial ? "Save changes" : "Create work item"}
-          </button>
-        </div>
+        {(!initial || !header) && (
+          <div className="form-actions">
+            <button
+              className="primary"
+              disabled={
+                busy || !!readOnly || (kind !== "Initiative" && !parents.length)
+              }
+            >
+              <Check size={16} />
+              {busy ? "Saving…" : initial ? "Save changes" : "Create work item"}
+            </button>
+          </div>
+        )}
       </fieldset>
     </form>
   );

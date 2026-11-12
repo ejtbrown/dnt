@@ -98,7 +98,10 @@ test("all work and document links survive reload, select their project and retai
       await expect(
         dialog.getByRole("link", { name: "Direct link" }),
       ).toHaveAttribute("href", `/t/${item.id}`);
-      expect((await dialog.boundingBox())!.width).toBeCloseTo(width * 0.75, 1);
+      expect((await dialog.boundingBox())!.width).toBeCloseTo(
+        width <= 720 ? width - 24 : width * 0.75,
+        1,
+      );
       const header = dialog.locator(".dialog-title");
       const before = await header.boundingBox();
       await dialog.locator(".dialog-body").evaluate((e) => {

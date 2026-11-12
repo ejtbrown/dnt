@@ -1426,6 +1426,8 @@ form .description-input {
   outline-offset: 1px;
 }
 .markdown-editor .cm-editor {
+  color: var(--text);
+  background: var(--surface-soft);
   font-size: 13px;
 }
 .markdown-editor .cm-scroller {
@@ -1649,7 +1651,7 @@ textarea::placeholder {
 }
 .comment-replies {
   margin-left: min(1.25rem, 3vw);
-  border-left: 2px solid var(--border, #d8dedb);
+  border-left: 2px solid var(--line);
   padding-left: 0.75rem;
 }
 .comment-thread {
@@ -1677,7 +1679,7 @@ textarea::placeholder {
 }
 .reply-context {
   padding: 0.65rem;
-  background: #f2f5f3;
+  background: var(--surface-soft);
   margin: 0.75rem 0;
   border-radius: 0.4rem;
 }
@@ -1706,7 +1708,7 @@ textarea::placeholder {
 
 .imported-evidence {
   padding: 0.75rem;
-  background: #f5f3e9;
+  background: var(--warning-bg);
   border-left: 3px solid #9b8d50;
   font-size: 0.85rem;
   margin: 0.5rem 0;
@@ -1719,7 +1721,7 @@ textarea::placeholder {
 .inline-reply-composer {
   margin: 0.75rem 0 0.75rem 1rem;
   padding: 1rem;
-  border-left: 2px solid var(--border, #d8dedb);
+  border-left: 2px solid var(--line);
 }
 
 .project-picker {
@@ -1758,8 +1760,9 @@ textarea::placeholder {
   top: 100%;
   left: 0;
   right: 0;
-  background: var(--panel, white);
-  border: 1px solid #ccc;
+  background: var(--paper);
+  color: var(--text);
+  border: 1px solid var(--control-line);
   border-radius: 0.5rem;
   padding: 0.3rem;
   max-height: 60vh;
@@ -1775,7 +1778,7 @@ textarea::placeholder {
 }
 .project-options button:hover,
 .project-options button:focus-visible {
-  background: #e5e7eb;
+  background: var(--hover);
 }
 .dependency-view-button {
   margin: 0.25rem 0 0.5rem;
@@ -1789,4 +1792,41 @@ dialog.dependency-dialog {
 }
 .dependency-dialog .dialog-body {
   overflow: auto;
+}
+
+/* The title stays outside the scrolling body, including its form controls. */
+.item-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+.item-header-actions .header-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.item-header-actions p {
+  margin: 0;
+  font-size: 12px;
+}
+dialog.work-item-dialog .dialog-title {
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  dialog.work-item-dialog {
+    width: calc(100% - 24px);
+  }
+  dialog.work-item-dialog .dialog-title {
+    flex-wrap: wrap;
+    padding: 12px;
+  }
+  .item-header-actions {
+    order: 3;
+    flex-basis: 100%;
+  }
 }

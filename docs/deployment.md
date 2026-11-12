@@ -64,7 +64,7 @@ Run `AWS_PROFILE=default npm run smoke:storage` after the data stack exists to t
 
 Perform these additional checks after initial deployment and relevant infrastructure or authentication changes:
 
-1. Sign in through Cognito with an invited user, including the shared MFA/passkey flow. Confirm the exact callback and logout behavior. Reloading starts a new code flow because tokens stay in memory.
+1. Sign in through Cognito with an invited user, including the shared MFA/passkey flow. Confirm the exact callback and logout behavior. Reloading starts a new code flow because tokens stay in memory. DNT offers Continue session when its short-lived access token expires or the API rejects it. The separate sign-in window reuses the broker’s existing SSO when available and leaves forms, comments, and navigation in the original window intact. Retry the original action explicitly after renewal; writes are never replayed automatically. Cancellation, blocked popups, expired SSO, and sign-in errors retain the drafts. Explicit Sign out still clears the shared broker session. This does not extend the broker’s fixed seven-day deadline or change the 15-minute token lifetime.
 2. Confirm missing tokens, ID tokens, wrong app-client tokens, and unknown project identities cannot read content.
 3. Create an initiative, epic, and task. Retry a POST with the same key and verify the original ID returns. Send two edits with the same `If-Match` and verify one fails.
 4. Confirm a User can read every documentation tree and old revisions but cannot create/edit/delete content. Confirm a Maintainer can edit every tree and cannot manage membership. Confirm users can withdraw only their own prior reactions.
