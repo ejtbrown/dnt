@@ -119,7 +119,7 @@ test("newest roots, top composer and flat inline replies preserve legacy parent 
   expect(posted.parentCommentVersion).toBe(old.version);
   await expect(
     page.getByRole("textbox", { name: "Comment", exact: true }),
-  ).toHaveValue("Unsent top draft");
+  ).toHaveText("Unsent top draft");
   const stored = await request("GET", path);
   expect(
     stored.items.find((c: any) => c.id === nested.id).parentCommentId,
