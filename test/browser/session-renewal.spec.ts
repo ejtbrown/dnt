@@ -112,8 +112,10 @@ test("silent top-level renewal restores drafts and view without replay or redire
   });
   await page.goto("/");
   await page.clock.install();
-  await page.getByRole("button", { name: /^Sign in/ }).click();
   await expect(page.locator("nav")).toBeVisible();
+  await page.reload();
+  await expect(page.locator("nav")).toBeVisible();
+  expect(exchanges).toBe(2);
   await page.locator("nav").getByRole("button", { name: "Planning" }).click();
   await page.getByRole("button", { name: /SSO-3.*Task/ }).click();
   const dialog = page.getByRole("dialog");
@@ -130,11 +132,11 @@ test("silent top-level renewal restores drafts and view without replay or redire
     await expect(page.locator("nav .active")).toContainText("Planning");
   };
   await page.clock.runFor(871_000);
-  await expect.poll(() => exchanges).toBe(2);
+  await expect.poll(() => exchanges).toBe(3);
   await restored();
   expect(writes).toBe(0);
-  expect(authorizeCount).toBe(2);
-  expect(prompts.slice(0, 2)).toEqual([null, "none"]);
+  expect(authorizeCount).toBe(3);
+  expect(prompts.slice(0, 3)).toEqual(["none", "none", "none"]);
   expect(context.pages().length).toBe(1);
   expect(
     await page.evaluate(() =>
@@ -147,12 +149,12 @@ test("silent top-level renewal restores drafts and view without replay or redire
   await expect(
     page.getByRole("dialog").getByRole("button", { name: "Continue session" }),
   ).toBeVisible();
-  expect(exchanges).toBe(2);
+  expect(exchanges).toBe(3);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Continue session" })
     .click();
-  await expect.poll(() => exchanges).toBe(3);
+  await expect.poll(() => exchanges).toBe(4);
   await restored();
   expect(writes).toBe(1);
   rejectWrites = false;
@@ -225,11 +227,28 @@ test("silent top-level renewal restores drafts and view without replay or redire
   holdMutation = new Promise<void>((resolve) => {
     releaseMutation = resolve;
   });
-  await page.getByRole("button", { name: "Post comment", exact: true }).click();
-  await expect.poll(() => writes).toBe(3);
   before = exchanges;
   const originalDestination = page.url();
+  // Start a mutation after queueRenewal observed idle, during asynchronous
+  // PKCE preparation. The final navigation must recheck active requests.
+  await page.evaluate(() => {
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = async (...args) => {
+      await new Promise<void>((resolve) => {
+        (window as any).releaseDigest = resolve;
+      });
+      crypto.subtle.digest = digest;
+      return digest(...args);
+    };
+  });
   await page.clock.runFor(871_000);
+  await expect
+    .poll(() => page.evaluate(() => !!(window as any).releaseDigest))
+    .toBe(true);
+  await page.getByRole("button", { name: "Post comment", exact: true }).click();
+  await expect.poll(() => writes).toBe(3);
+  await page.evaluate(() => (window as any).releaseDigest());
+  await page.clock.runFor(500);
   expect(exchanges).toBe(before);
   await expect(page).toHaveURL(originalDestination);
   releaseMutation!();
@@ -278,7 +297,6 @@ test("silent top-level renewal restores drafts and view without replay or redire
     content: "Original",
   });
   await page.goto(`/d/user-${doc.id}`);
-  await page.getByRole("button", { name: /^Sign in/ }).click();
   await page.getByRole("button", { name: "Edit page", exact: true }).click();
   await page.getByLabel("Page title").fill("Edited document draft");
   mode = "denied";
@@ -306,4 +324,8 @@ test("silent top-level renewal restores drafts and view without replay or redire
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page).toHaveURL(/login.example.com\/logout/);
+  const loggedOutAttempts = authorizeCount;
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: /^Sign in/ })).toBeVisible();
+  expect(authorizeCount).toBe(loggedOutAttempts);
 });

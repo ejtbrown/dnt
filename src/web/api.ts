@@ -23,6 +23,8 @@ function expired() {
 }
 function acceptToken(value: string, expiresIn?: number) {
   token = value;
+  sessionStorage.removeItem("dnt.auto-signin-blocked");
+  sessionStorage.setItem("dnt.previous-session", "true");
   clearTimeout(expiryTimer);
   expiresAt = typeof expiresIn === "number" ? Date.now() + expiresIn * 1000 : 0;
   if (expiresAt)
@@ -45,7 +47,9 @@ export async function initialize() {
   const response = await fetch("/config.json", { cache: "no-store" });
   if (!response.ok) throw new Error("Application configuration is unavailable");
   config = await response.json();
-  if (location.pathname === "/auth/callback") {
+  const callback = location.pathname === "/auth/callback";
+  if (callback) {
+    sessionStorage.setItem("dnt.auto-signin-blocked", "true");
     const query = new URLSearchParams(location.search);
     const expected = sessionStorage.getItem("dnt.oauth");
     sessionStorage.removeItem("dnt.oauth");
@@ -55,6 +59,14 @@ export async function initialize() {
 
     if (query.get("state") !== state || Date.now() - createdAt > 600_000)
       throw new Error("Invalid or expired sign-in response");
+    if (typeof returnTo === "string" && returnTo.startsWith("/")) {
+      const destination = new URL(returnTo, location.origin);
+      if (
+        destination.origin === location.origin &&
+        (destination.pathname === "/" || parseDirectLink(destination.pathname))
+      )
+        history.replaceState({}, "", destination.pathname + destination.hash);
+    }
     if (query.has("error"))
       throw new Error(
         query.get("error") === "login_required"
@@ -102,15 +114,22 @@ export async function initialize() {
       );
     restoreDrafts(subject(tokens.access_token));
     acceptToken(tokens.access_token, tokens.expires_in);
-    if (typeof returnTo === "string" && returnTo.startsWith("/")) {
-      const destination = new URL(returnTo, location.origin);
-      if (
-        destination.origin === location.origin &&
-        (destination.pathname === "/" || parseDirectLink(destination.pathname))
-      )
-        history.replaceState({}, "", destination.pathname + destination.hash);
-    }
     // Tokens stay in memory. The existing broker decides whether its fixed SSO session can be reused.
+  }
+  if (
+    !callback &&
+    !config.local &&
+    !token &&
+    !sessionStorage.getItem("dnt.auto-signin-blocked") &&
+    (location.pathname === "/" ||
+      location.pathname.startsWith("/t/") ||
+      sessionStorage.getItem("dnt.previous-session"))
+  ) {
+    const attempt = await authorization(true);
+    sessionStorage.setItem("dnt.auto-signin-blocked", "true");
+    sessionStorage.setItem("dnt.oauth", attempt.transaction);
+    location.replace(attempt.url);
+    await new Promise(() => {});
   }
   return { config, authenticated: !!config.local || !!token };
 }
@@ -185,7 +204,16 @@ export async function renewSession(interactive = false) {
   renewalPending = true;
   try {
     const attempt = await authorization(!interactive);
+    // Authorization hashes asynchronously. A request may start while it is
+    // being prepared, or after the queue's idle check. Recheck immediately
+    // before the synchronous snapshot/navigation, allowing React to settle.
+    do {
+      await new Promise((resolve) =>
+        setTimeout(resolve, activeRequests ? 100 : 0),
+      );
+    } while (activeRequests);
     saveDrafts(account, location.pathname + location.hash);
+    sessionStorage.setItem("dnt.auto-signin-blocked", "true");
     sessionStorage.setItem("dnt.oauth", attempt.transaction);
     sessionStorage.setItem("dnt.silent-attempt", String(Date.now()));
     location.replace(attempt.url);
@@ -196,6 +224,8 @@ export async function renewSession(interactive = false) {
 }
 export function logout() {
   clearDrafts();
+  sessionStorage.setItem("dnt.auto-signin-blocked", "true");
+  sessionStorage.removeItem("dnt.previous-session");
   sessionStorage.removeItem("dnt.silent-attempt");
   token = undefined;
   expiresAt = 0;
