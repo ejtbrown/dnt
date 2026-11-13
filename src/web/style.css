@@ -1830,3 +1830,26 @@ dialog.work-item-dialog .dialog-title {
     flex-basis: 100%;
   }
 }
+
+.document-version-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.document-version-picker select {
+  max-width: min(100%, 22rem);
+  background: var(--paper);
+  color: var(--text);
+}
+.document-version-picker [role="status"],
+.document-version-picker [role="alert"] {
+  font-size: 0.8rem;
+}
+.historical-notice {
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--muted);
+}

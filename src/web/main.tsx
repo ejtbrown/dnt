@@ -1,3 +1,9 @@
+import {
+  DocumentVersions,
+  currentDocumentTree,
+  archiveParent,
+  type DocumentView,
+} from "./document-versions.js";
 import { useDraftState, hasRestoredDrafts } from "./session-drafts.js";
 import { DependencyView } from "./dependency-view.js";
 import { ProjectPicker, type ProjectSignals } from "./project-picker.js";
@@ -197,6 +203,13 @@ function App({
   );
   const [editDoc, setEditDoc] = useDraftState("app:editDoc", false);
   const [revisions, setRevisions] = useState<Document[]>([]);
+  const [documentView, setDocumentView] = useState<DocumentView>();
+  const [documentReadGeneration, setDocumentReadGeneration] = useState(0);
+  const activeDocumentView =
+    documentView?.documentId === selectedDoc?.id ? documentView : undefined;
+  const displayedDoc = activeDocumentView?.historical
+    ? activeDocumentView.page
+    : selectedDoc;
   const project = projects.find((p) => p.slug === slug);
   const role = project?.role ?? "User";
   const canWrite = rank(role) >= 1;
@@ -1048,12 +1061,18 @@ function App({
                         {tree.toUpperCase()} GUIDE
                       </div>
                       <DocTree
-                        documents={docs}
+                        documents={currentDocumentTree(docs)}
                         disabled={busy || editDoc}
-                        selected={selectedDoc?.id}
-                        select={(doc) =>
-                          navigate(documentLink(doc.tree, doc.id))
+                        selected={
+                          selectedDoc &&
+                          (archiveParent(selectedDoc, docs)?.id ??
+                            selectedDoc.id)
                         }
+                        select={(doc) => {
+                          setDocumentView(undefined);
+                          setDocumentReadGeneration((n) => n + 1);
+                          navigate(documentLink(doc.tree, doc.id));
+                        }}
                       />
                       {!docs.length && <p className="muted">No pages yet.</p>}
                     </aside>
@@ -1119,16 +1138,33 @@ function App({
                               >
                                 <History size={16} /> History
                               </button>
+                              <DocumentVersions
+                                key={`${selectedDoc.id}:${selectedDoc.version}:${documentReadGeneration}`}
+                                document={selectedDoc}
+                                documents={docs}
+                                navigate={(doc) =>
+                                  navigate(documentLink(doc.tree, doc.id))
+                                }
+                                onView={setDocumentView}
+                              />
                               <button
                                 className="secondary"
-                                disabled={busy || !canWrite}
+                                disabled={
+                                  busy ||
+                                  !canWrite ||
+                                  activeDocumentView?.historical
+                                }
                                 onClick={() => setEditDoc(true)}
                               >
                                 Edit page
                               </button>
                               <button
                                 className="secondary danger"
-                                disabled={busy || !canWrite}
+                                disabled={
+                                  busy ||
+                                  !canWrite ||
+                                  activeDocumentView?.historical
+                                }
                                 onClick={() => {
                                   if (
                                     !confirm(
@@ -1174,7 +1210,11 @@ function App({
                                 <input
                                   type="checkbox"
                                   checked={selectedDoc.public}
-                                  disabled={busy || !canWrite}
+                                  disabled={
+                                    busy ||
+                                    !canWrite ||
+                                    activeDocumentView?.historical
+                                  }
                                   onChange={(e) => {
                                     const isPublic = e.target.checked;
                                     const original = selectedDoc;
@@ -1209,15 +1249,34 @@ function App({
                                 Anyone with the link can read a public page.
                               </small>
                             </div>
-                            <h1>{selectedDoc.title}</h1>
-                            <p className="byline">
-                              Updated {shortDate(selectedDoc.updatedAt)} by{" "}
-                              <Byline
-                                attribution={selectedDoc.attribution}
-                                principal={selectedDoc.updatedBy}
-                              />
-                            </p>
-                            <Content>{selectedDoc.content}</Content>
+                            {activeDocumentView?.historical && (
+                              <p className="historical-notice">
+                                Historical revision · read-only. Choose Current
+                                version to edit.
+                              </p>
+                            )}
+                            {activeDocumentView?.loading ? (
+                              <p role="status">Loading revision…</p>
+                            ) : activeDocumentView?.error ? (
+                              <p role="alert" className="error">
+                                {activeDocumentView.error}
+                              </p>
+                            ) : (
+                              displayedDoc && (
+                                <>
+                                  <h1>{displayedDoc.title}</h1>
+                                  <p className="byline">
+                                    Updated {shortDate(displayedDoc.updatedAt)}{" "}
+                                    by{" "}
+                                    <Byline
+                                      attribution={displayedDoc.attribution}
+                                      principal={displayedDoc.updatedBy}
+                                    />
+                                  </p>
+                                  <Content>{displayedDoc.content}</Content>
+                                </>
+                              )
+                            )}
                           </>
                         )
                       ) : (
