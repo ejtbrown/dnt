@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Conflict, type Row, type Store, type Write } from "../api/store.js";
 import type { Identity } from "./tools.js";
 import type { LoginIdentity, LoginProvider } from "./cognito.js";
+import type { OAuthReason, RequestDiagnostic } from "./telemetry.js";
 const now = () => Math.floor(Date.now() / 1000);
 const secret = () => randomBytes(32).toString("base64url");
 export const hash = (value: string) =>
@@ -22,12 +23,13 @@ export class OAuthError extends Error {
   constructor(
     readonly code: string,
     readonly status = 400,
+    readonly reason?: OAuthReason,
   ) {
     super(code);
   }
 }
-function fail(code = "invalid_request"): never {
-  throw new OAuthError(code);
+function fail(code = "invalid_request", reason?: OAuthReason): never {
+  throw new OAuthError(code, 400, reason);
 }
 function required(form: URLSearchParams, name: string, max = 2048): string {
   const values = form.getAll(name);
@@ -494,7 +496,12 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
       }
     }
   }
-  async token(form: URLSearchParams) {
+  async token(form: URLSearchParams, detail: RequestDiagnostic = {}) {
+    const grantType = form.get("grant_type");
+    detail.oauthGrant =
+      grantType === "authorization_code" || grantType === "refresh_token"
+        ? grantType
+        : "other";
     const client = await this.clients.resolve(required(form, "client_id"));
     if (form.has("client_secret") || form.has("client_assertion"))
       fail("invalid_client");
@@ -511,10 +518,10 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
         !/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) ||
         !same(hash(verifier), row.value.challenge)
       )
-        fail("invalid_grant");
+        fail("invalid_grant", "code_invalid");
       if (row.value.used) {
         if (row.value.grant) await this.revokeGrant(row.value.grant);
-        fail("invalid_grant");
+        fail("invalid_grant", "code_used");
       }
       const grantId = secret();
       const grant: Grant = {
@@ -537,7 +544,7 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
         const replay = await this.get<Code>("CODE", required(form, "code"));
         if (replay?.value.used && replay.value.grant)
           await this.revokeGrant(replay.value.grant);
-        fail("invalid_grant");
+        fail("invalid_grant", "code_conflict");
       }
       return json(issued.response);
     }
@@ -550,10 +557,10 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
         row.value.clientId !== client.id ||
         row.value.resource !== this.resource
       )
-        fail("invalid_grant");
+        fail("invalid_grant", "refresh_invalid");
       if (row.value.used) {
         await this.revokeGrant(row.value.grant);
-        fail("invalid_grant");
+        fail("invalid_grant", "refresh_used");
       }
       const grant = await this.get<Grant>("GRANT", row.value.grant);
       if (
@@ -562,10 +569,10 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
         grant.value.clientId !== client.id ||
         grant.value.resource !== this.resource
       )
-        fail("invalid_grant");
+        fail("invalid_grant", "grant_invalid");
       if (!(await this.login.active(grant.value.identity))) {
         await this.revokeGrant(row.value.grant);
-        fail("invalid_grant");
+        fail("invalid_grant", "account_inactive");
       }
       const narrowed = form.has("scope")
         ? scopes(required(form, "scope"))
@@ -583,7 +590,7 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
         if (!(e instanceof Conflict) || attempt === 1) throw e;
       }
     }
-    return fail("invalid_grant");
+    return fail("invalid_grant", "refresh_invalid");
   }
   async authenticate(token: string): Promise<Identity | undefined> {
     if (!/^dnta_[A-Za-z0-9_-]{43}$/.test(token)) return;
@@ -617,7 +624,10 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
       await this.revokeGrant(row.value.grant);
     return new Response(null, { status: 200, headers: baseHeaders });
   }
-  async handle(request: Request): Promise<Response> {
+  async handle(
+    request: Request,
+    detail: RequestDiagnostic = {},
+  ): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
       if (request.method === "GET") {
@@ -649,21 +659,21 @@ h1{font-size:2rem}code{overflow-wrap:anywhere}.brand{display:block;width:300px;m
         if (Buffer.byteLength(text) > 16384)
           throw new OAuthError("invalid_request", 413);
         const form = params(request, text);
-        if (path === "/oauth/token") return await this.token(form);
+        if (path === "/oauth/token") return await this.token(form, detail);
         if (path === "/oauth/revoke") return await this.revoke(form);
         return await this.consent(request, form);
       }
       return json({ error: "not_found" }, 404);
     } catch (error) {
-      if (error instanceof OAuthError)
+      if (error instanceof OAuthError) {
+        detail.oauthReason = error.reason;
         return json({ error: error.code }, error.status);
-      if (error instanceof Conflict)
+      }
+      if (error instanceof Conflict) {
+        detail.oauthReason = "store_conflict";
         return json({ error: "invalid_grant" }, 400);
-      console.error(
-        JSON.stringify({
-          error: error instanceof Error ? error.name : "OAuthError",
-        }),
-      );
+      }
+      detail.oauthReason = "internal_error";
       return json({ error: "server_error" }, 500);
     }
   }
