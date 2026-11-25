@@ -4,7 +4,7 @@ import { Service } from "../api/service.js";
 import { CognitoLogin } from "./cognito.js";
 import { MetadataClients, OAuthBroker } from "./oauth.js";
 import { createHttpHandler } from "./http.js";
-import { discoveryDiagnostic } from "./diagnostics.js";
+import { createGatewayHandler } from "./telemetry.js";
 const origin = process.env.PUBLIC_ORIGIN!;
 const broker = new OAuthBroker(
   origin,
@@ -25,68 +25,4 @@ const service = new Service(
   process.env.PUBLIC_ORIGIN!,
 );
 const handle = createHttpHandler(service, broker);
-export async function handler(event: any) {
-  try {
-    const raw = event.isBase64Encoded
-      ? Buffer.from(event.body ?? "", "base64")
-      : Buffer.from(event.body ?? "", "utf8");
-    if (raw.length > 150_000)
-      return {
-        statusCode: 413,
-        headers: {
-          "cache-control": "no-store",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ error: "Request is too large" }),
-      };
-    const headers = new Headers(event.headers ?? {});
-    // Payload format 2.0 moves Cookie headers into this separate field.
-    if (event.cookies?.length) headers.set("cookie", event.cookies.join("; "));
-    const method = event.requestContext.http.method;
-    const url = new URL(origin);
-    url.pathname = event.rawPath;
-    url.search = event.rawQueryString ?? "";
-    const request = new Request(url, {
-      method,
-      headers,
-      ...(["GET", "HEAD"].includes(method) ? {} : { body: raw }),
-    });
-    const response = await handle(request);
-    const body = await response.text();
-    const diagnostic = discoveryDiagnostic(
-      request,
-      raw.toString("utf8"),
-      response.status,
-      body,
-    );
-    if (diagnostic)
-      console.info(
-        JSON.stringify({
-          ...diagnostic,
-          requestId: event.requestContext.requestId,
-        }),
-      );
-    const outgoing = Object.fromEntries(response.headers);
-    delete outgoing["set-cookie"];
-    return {
-      statusCode: response.status,
-      headers: outgoing,
-      cookies: response.headers.getSetCookie(),
-      body,
-    };
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        error: error instanceof Error ? error.name : "McpError",
-      }),
-    );
-    return {
-      statusCode: 500,
-      headers: {
-        "content-type": "application/json",
-        "cache-control": "no-store",
-      },
-      body: JSON.stringify({ error: "Internal error" }),
-    };
-  }
-}
+export const handler = createGatewayHandler(origin, handle);

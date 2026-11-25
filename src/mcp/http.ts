@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { Service } from "../api/service.js";
 import { OAuthBroker } from "./oauth.js";
 import { challenge, createMcpServer } from "./tools.js";
+import type { RequestDiagnostic } from "./telemetry.js";
 const common = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
@@ -17,7 +18,10 @@ function response(
   });
 }
 export function createHttpHandler(service: Service, broker: OAuthBroker) {
-  return async (request: Request): Promise<Response> => {
+  return async (
+    request: Request,
+    detail: RequestDiagnostic = {},
+  ): Promise<Response> => {
     const origin = request.headers.get("origin");
     if (origin && ![broker.origin, "https://chatgpt.com"].includes(origin))
       return response(403, { error: "Origin not allowed" });
@@ -39,7 +43,7 @@ export function createHttpHandler(service: Service, broker: OAuthBroker) {
       });
     let result: Response;
     if (new URL(request.url).pathname !== "/mcp")
-      result = await broker.handle(request);
+      result = await broker.handle(request, detail);
     else {
       const authorization = request.headers.get("authorization");
       const token = authorization?.match(/^Bearer (\S+)$/i)?.[1];
