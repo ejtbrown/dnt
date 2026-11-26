@@ -8,6 +8,7 @@ import { MemoryDirectory } from "../src/groups/memory.js";
 import { synchronize, ownership } from "../src/groups/sync.js";
 import { groupName, type GroupSync } from "../src/groups/model.js";
 import { CognitoDirectory } from "../src/groups/cognito.js";
+import type { AuditEvent } from "../src/shared/model.js";
 const admin = "cognito:local-developer",
   member = "cognito:teammate",
   origin = "https://dnt.example.com";
@@ -47,7 +48,8 @@ async function fixture() {
     (await db.get<GroupSync>("PROJECT#ROOT", "GROUP_SYNC"))!.value;
   return { db, directory, service, call, sync, status };
 }
-test("groups follow create, grant, role change, revoke, and delete; access and audit are transactional", async () => {
+test("groups follow create, grant, role change, revoke, and delete; access and audit are transactional", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 0, 1) });
   const f = await fixture();
   assert.equal((await f.status()).status, "pending");
   await f.sync();
@@ -207,9 +209,11 @@ test("groups follow create, grant, role change, revoke, and delete; access and a
     (await f.call("GET", "/projects/ROOT/groups")).body.sync.status,
     "deleted",
   );
-  const audit = await f.db.query<any>("PROJECT#ROOT", "AUDIT#", 100);
-  assert.equal(audit.rows.at(-1)!.value.action, "project.deleted");
-  assert.equal(audit.rows.at(-1)!.value.attribution.agentName, "Group Agent");
+  const audit = await f.db.query<AuditEvent>("PROJECT#ROOT", "AUDIT#", 100);
+  const deletions = audit.rows.filter(({ value }) => value.action === "project.deleted");
+  assert.equal(deletions.length, 1);
+  assert.equal(deletions[0].value.target, "ROOT");
+  assert.equal(deletions[0].value.attribution.agentName, "Group Agent");
 });
 test("only project administrators can search or manage groups, and nonexistent accounts cannot be granted access", async () => {
   const f = await fixture();
