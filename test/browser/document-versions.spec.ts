@@ -152,7 +152,7 @@ for (const theme of ["light", "dark"] as const) {
       release = resolve;
     });
     await picker.selectOption("1");
-    await expect(page.getByRole("status")).toContainText("Loading revision");
+    await expect(page.getByRole("status").filter({ hasText: "Loading revision" })).toBeVisible();
     await page
       .locator(".doc-nav")
       .getByRole("button", { name: "Other guide", exact: true })

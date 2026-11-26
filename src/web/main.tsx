@@ -91,6 +91,66 @@ function Byline({
     </span>
   );
 }
+
+function DocumentCopyActions({
+  href,
+  markdown,
+  title,
+}: {
+  href: string;
+  markdown?: string;
+  title?: string;
+}) {
+  const [status, setStatus] = useState("");
+  const request = useRef(0);
+
+  async function copy(text: string, success: string, failure: string) {
+    const attempt = ++request.current;
+    setStatus("");
+    let message = success;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      message = failure;
+    }
+    if (attempt === request.current) setStatus(message);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          copy(
+            new URL(href, window.location.origin).href,
+            "Page link copied.",
+            "Could not copy the page link.",
+          )
+        }
+      >
+        Copy page link
+      </button>
+      {typeof markdown === "string" && (
+        <button
+          type="button"
+          onClick={() => copy(markdown, "Markdown copied.", "Could not copy Markdown.")}
+        >
+          Copy Markdown
+        </button>
+      )}
+      {typeof title === "string" && (
+        <button
+          type="button"
+          onClick={() => copy(title, "Title copied.", "Could not copy the title.")}
+        >
+          Copy title
+        </button>
+      )}
+      <span role="status">{status}</span>
+    </>
+  );
+}
+
 function Dialog({
   title,
   children,
@@ -1206,6 +1266,12 @@ function App({
                               >
                                 <LinkIcon size={15} /> Direct link
                               </a>
+                              <DocumentCopyActions
+                                key={`${selectedDoc.tree}:${selectedDoc.id}:${selectedDoc.version}:${activeDocumentView?.historical ?? false}`}
+                                href={documentLink(selectedDoc.tree, selectedDoc.id)}
+                                markdown={activeDocumentView?.historical ? undefined : displayedDoc?.content}
+                                title={activeDocumentView?.historical ? undefined : displayedDoc?.title}
+                              />
                               <label className="checkbox-label">
                                 <input
                                   type="checkbox"
